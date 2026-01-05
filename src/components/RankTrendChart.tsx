@@ -153,17 +153,17 @@ export default function RankTrendChart({
             onClick={() => toggleTitle(title.id)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
               selectedTitles.has(title.id)
-                ? "bg-white bg-opacity-15 border-white border-opacity-30"
-                : "bg-transparent border-gray-600 opacity-40"
+                ? "bg-white border-white text-gunmetal"
+                : "bg-transparent border-gray-600 text-gray-500 opacity-50"
             }`}
           >
             <span
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: title.color }}
             />
-            <span className="text-white max-w-[180px] truncate">{title.name}</span>
+            <span className="max-w-[180px] truncate">{title.name}</span>
             {title.currentRank && (
-              <span className="text-gray-300 text-xs">#{title.currentRank}</span>
+              <span className={`text-xs ${selectedTitles.has(title.id) ? "text-gray-600" : "text-gray-500"}`}>#{title.currentRank}</span>
             )}
           </button>
         ))}
