@@ -51,10 +51,11 @@ export async function GET(request: NextRequest) {
     };
     const categoryFilter = getCategoryFilter();
 
-    // Get the most recent week with data
+    // Get the most recent week with data (cache for 5 minutes)
     const latestWeek = await prisma.netflixWeeklyGlobal.findFirst({
       orderBy: { weekStart: 'desc' },
       select: { weekStart: true },
+      cacheStrategy: { ttl: 300 },
     });
 
     if (!latestWeek) {
@@ -72,7 +73,8 @@ export async function GET(request: NextRequest) {
     // Get current week data with forecasts
     const whereClause = type ? { type } : {};
 
-    const currentData =
+    // Fetch current week data and titles separately to avoid complex nested queries
+    const currentWeekData =
       geo === 'US'
         ? await prisma.netflixWeeklyUS.findMany({
             where: {
@@ -80,21 +82,14 @@ export async function GET(request: NextRequest) {
               title: whereClause,
               ...(categoryFilter && { category: categoryFilter }),
             },
-            include: {
-              title: {
-                include: {
-                  forecasts: {
-                    where: {
-                      weekStart,
-                      target: 'RANK',
-                    },
-                    take: 1,
-                  },
-                },
-              },
+            select: {
+              titleId: true,
+              rank: true,
+              category: true,
             },
             orderBy: { rank: 'asc' },
-            take: limit * 2, // Get more to filter by momentum
+            take: limit * 2,
+            cacheStrategy: { ttl: 300 },
           })
         : await prisma.netflixWeeklyGlobal.findMany({
             where: {
@@ -102,24 +97,49 @@ export async function GET(request: NextRequest) {
               title: whereClause,
               ...(categoryFilter && { category: categoryFilter }),
             },
-            include: {
-              title: {
-                include: {
-                  forecasts: {
-                    where: {
-                      weekStart,
-                      target: 'VIEWERSHIP',
-                    },
-                    take: 1,
-                  },
-                },
-              },
+            select: {
+              titleId: true,
+              rank: true,
+              views: true,
+              category: true,
             },
             orderBy: { rank: 'asc' },
             take: limit * 2,
+            cacheStrategy: { ttl: 300 },
           });
 
-    // Get previous week data for comparison
+    // Get title IDs for batch fetch
+    const titleIds = currentWeekData.map((d) => d.titleId);
+
+    // Batch fetch titles and forecasts
+    const [titles, forecasts] = await Promise.all([
+      prisma.title.findMany({
+        where: { id: { in: titleIds } },
+        select: { id: true, canonicalName: true, type: true },
+        cacheStrategy: { ttl: 300 },
+      }),
+      prisma.forecastWeekly.findMany({
+        where: {
+          titleId: { in: titleIds },
+          weekStart,
+          target: geo === 'US' ? 'RANK' : 'VIEWERSHIP',
+        },
+        select: { titleId: true, p10: true, p50: true, p90: true, explainJson: true },
+        cacheStrategy: { ttl: 300 },
+      }),
+    ]);
+
+    const titleMap = new Map(titles.map((t: { id: string; canonicalName: string; type: TitleType }) => [t.id, t]));
+    const forecastMap = new Map(forecasts.map((f: { titleId: string; p10: number | null; p50: number | null; p90: number | null; explainJson: unknown }) => [f.titleId, f]));
+
+    // Combine data
+    const currentData = currentWeekData.map((d) => ({
+      ...d,
+      title: titleMap.get(d.titleId),
+      forecast: forecastMap.get(d.titleId),
+    }));
+
+    // Get previous week data for comparison (cached)
     const previousData =
       geo === 'US'
         ? await prisma.netflixWeeklyUS.findMany({
@@ -128,6 +148,7 @@ export async function GET(request: NextRequest) {
               ...(categoryFilter && { category: categoryFilter }),
             },
             select: { titleId: true, rank: true },
+            cacheStrategy: { ttl: 300 },
           })
         : await prisma.netflixWeeklyGlobal.findMany({
             where: {
@@ -135,39 +156,42 @@ export async function GET(request: NextRequest) {
               ...(categoryFilter && { category: categoryFilter }),
             },
             select: { titleId: true, rank: true, views: true },
+            cacheStrategy: { ttl: 300 },
           });
 
     const previousMap = new Map(previousData.map((p) => [p.titleId, p]));
 
     // Build response with momentum calculation
-    const movers: MoverResponse[] = currentData.map((current: any) => {
-      const previous = previousMap.get(current.titleId);
-      const currentRank = current.rank;
-      const previousRank = previous?.rank ?? null;
-      const rankChange = previousRank ? previousRank - currentRank : null;
+    const movers: MoverResponse[] = currentData
+      .filter((current) => current.title) // Filter out entries without title
+      .map((current) => {
+        const previous = previousMap.get(current.titleId);
+        const currentRank = current.rank;
+        const previousRank = previous?.rank ?? null;
+        const rankChange = previousRank ? previousRank - currentRank : null;
 
-      // Get forecast data
-      const forecast = current.title.forecasts[0];
-      const explainJson = forecast?.explainJson as { momentumScore?: number } | null;
+        // Get forecast data from the separate fetch
+        const forecast = current.forecast;
+        const explainJson = forecast?.explainJson as { momentumScore?: number } | null;
 
-      // Calculate momentum score from forecast or estimate from rank change
-      const momentumScore = explainJson?.momentumScore ?? (rankChange ? 50 + rankChange * 5 : 50);
+        // Calculate momentum score from forecast or estimate from rank change
+        const momentumScore = explainJson?.momentumScore ?? (rankChange ? 50 + rankChange * 5 : 50);
 
-      return {
-        id: current.title.id,
-        title: current.title.canonicalName,
-        type: current.title.type,
-        currentRank,
-        previousRank,
-        rankChange,
-        views: 'views' in current && current.views ? Number(current.views) : null,
-        momentumScore,
-        forecastP10: forecast?.p10 ?? null,
-        forecastP50: forecast?.p50 ?? null,
-        forecastP90: forecast?.p90 ?? null,
-        category: current.category,
-      };
-    });
+        return {
+          id: current.title!.id,
+          title: current.title!.canonicalName,
+          type: current.title!.type,
+          currentRank,
+          previousRank,
+          rankChange,
+          views: 'views' in current && current.views ? Number(current.views) : null,
+          momentumScore,
+          forecastP10: forecast?.p10 ?? null,
+          forecastP50: forecast?.p50 ?? null,
+          forecastP90: forecast?.p90 ?? null,
+          category: current.category,
+        };
+      });
 
     // Sort based on parameter
     const sortedMovers = movers.sort((a, b) => {

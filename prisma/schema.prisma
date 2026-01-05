@@ -40,6 +40,13 @@ enum JobStatus {
   FAIL
 }
 
+enum CandidateStatus {
+  PENDING   // Discovered, not yet matched
+  MATCHED   // Linked to Title
+  REJECTED  // Admin rejected
+  RELEASED  // Appeared in Top 10
+}
+
 // =============================================================================
 // CORE MODELS
 // =============================================================================
@@ -53,11 +60,15 @@ model Title {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  weeklyGlobal  NetflixWeeklyGlobal[]
-  weeklyUS      NetflixWeeklyUS[]
-  dailySignals  DailySignal[]
-  forecasts     ForecastWeekly[]
-  marketLinks   MarketTitleLink[]
+  weeklyGlobal       NetflixWeeklyGlobal[]
+  weeklyUS           NetflixWeeklyUS[]
+  dailySignals       DailySignal[]
+  forecasts          ForecastWeekly[]
+  marketLinks        MarketTitleLink[]
+  externalIds        TitleExternalId[]
+  releaseCandidates  ReleaseCandidate[]
+  pinnedTitle        PinnedTitle?
+  pacingMetrics      PacingMetricDaily[]
 
   @@unique([canonicalName, type])
 }
@@ -170,6 +181,66 @@ model MarketTitleLink {
   createdAt DateTime         @default(now())
 
   @@unique([marketId, titleId])
+}
+
+// =============================================================================
+// RELEASE WATCHLIST MODELS
+// =============================================================================
+
+model ReleaseCandidate {
+  id          String          @id @default(cuid())
+  name        String          // Raw name from source
+  type        TitleType       // SHOW or MOVIE
+  releaseDate DateTime?       // Expected/actual release date
+  source      String          // "tudum", "tmdb", "manual"
+  sourceId    String?         // External ID from source
+  status      CandidateStatus @default(PENDING)
+  titleId     String?         // Linked Title once matched
+  title       Title?          @relation(fields: [titleId], references: [id])
+  metadata    Json?           // Extra info (poster, description)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([status])
+  @@index([releaseDate])
+}
+
+model TitleExternalId {
+  id         String   @id @default(cuid())
+  titleId    String
+  title      Title    @relation(fields: [titleId], references: [id])
+  provider   String   // "tmdb", "imdb", "wikipedia"
+  externalId String
+  createdAt  DateTime @default(now())
+
+  @@unique([titleId, provider])
+  @@unique([provider, externalId])
+}
+
+model PinnedTitle {
+  id       String   @id @default(cuid())
+  titleId  String   @unique
+  title    Title    @relation(fields: [titleId], references: [id])
+  pinnedAt DateTime @default(now())
+  pinnedBy String?  // User ID who pinned
+
+  @@index([pinnedAt])
+}
+
+model PacingMetricDaily {
+  id           String   @id @default(cuid())
+  titleId      String
+  title        Title    @relation(fields: [titleId], references: [id])
+  date         DateTime
+  trendsUS     Float?   // Google Trends US (0-100)
+  trendsGlobal Float?   // Google Trends Global (0-100)
+  wikiViews    Float?   // Wikipedia pageviews
+  pacingScore  Float?   // Computed composite score (0-100)
+  createdAt    DateTime @default(now())
+
+  @@unique([titleId, date])
+  @@index([date])
 }
 
 // =============================================================================

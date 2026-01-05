@@ -47,10 +47,15 @@ export default function AdminPage() {
           description="Discover and sync market data"
           endpoint="/api/jobs/sync-polymarket"
         />
+        <JobCard
+          title="Pacing Metrics"
+          description="Fetch pacing signals for watchlist titles"
+          endpoint="/api/jobs/ingest-pacing"
+        />
       </div>
 
       {/* Admin Links */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white border border-dust-grey rounded-lg p-6">
           <h2 className="text-xl font-semibold text-gunmetal mb-4">Configuration</h2>
           <p className="text-gray-600 mb-4">
@@ -74,6 +79,19 @@ export default function AdminPage() {
             className="inline-block bg-old-gold text-gunmetal px-4 py-2 rounded-lg hover:bg-opacity-90 transition-colors font-medium"
           >
             View History
+          </a>
+        </div>
+
+        <div className="bg-white border border-dust-grey rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gunmetal mb-4">Release Watchlist</h2>
+          <p className="text-gray-600 mb-4">
+            Manage upcoming Netflix releases and track pacing signals.
+          </p>
+          <a
+            href="/admin/releases"
+            className="inline-block bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-opacity-90 transition-colors font-medium"
+          >
+            Manage Releases
           </a>
         </div>
       </div>

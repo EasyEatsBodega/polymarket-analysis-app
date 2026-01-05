@@ -38,13 +38,14 @@ export async function GET(request: NextRequest) {
     };
     const categoryFilter = getCategoryFilter();
 
-    // Get the most recent weeks
+    // Get the most recent weeks (cached for 5 minutes)
     const recentWeeks = await prisma.netflixWeeklyGlobal.findMany({
       where: categoryFilter ? { category: categoryFilter } : {},
       select: { weekStart: true },
       distinct: ['weekStart'],
       orderBy: { weekStart: 'desc' },
       take: weeks,
+      cacheStrategy: { ttl: 300 },
     });
 
     if (recentWeeks.length === 0) {
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
     const weekStarts = recentWeeks.map(w => w.weekStart).reverse(); // Oldest to newest
     const latestWeek = weekStarts[weekStarts.length - 1];
 
-    // Get top titles from the latest week
+    // Get top titles from the latest week (cached)
     const topRankings = await prisma.netflixWeeklyGlobal.findMany({
       where: {
         weekStart: latestWeek,
@@ -66,25 +67,29 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { rank: 'asc' },
       take: limit,
+      cacheStrategy: { ttl: 300 },
     });
 
     const titleIds = topRankings.map(t => t.titleId);
 
-    // Fetch title details separately
-    const titlesData = await prisma.title.findMany({
-      where: { id: { in: titleIds } },
-    });
+    // Fetch title details and historical data in parallel (cached)
+    const [titlesData, historicalData] = await Promise.all([
+      prisma.title.findMany({
+        where: { id: { in: titleIds } },
+        select: { id: true, canonicalName: true, type: true },
+        cacheStrategy: { ttl: 300 },
+      }),
+      prisma.netflixWeeklyGlobal.findMany({
+        where: {
+          titleId: { in: titleIds },
+          weekStart: { in: weekStarts },
+          ...(categoryFilter && { category: categoryFilter }),
+        },
+        orderBy: { weekStart: 'asc' },
+        cacheStrategy: { ttl: 300 },
+      }),
+    ]);
     const titleMap = new Map(titlesData.map(t => [t.id, t]));
-
-    // Get historical data for these titles
-    const historicalData = await prisma.netflixWeeklyGlobal.findMany({
-      where: {
-        titleId: { in: titleIds },
-        weekStart: { in: weekStarts },
-        ...(categoryFilter && { category: categoryFilter }),
-      },
-      orderBy: { weekStart: 'asc' },
-    });
 
     // Build chart data structure
     const chartData: ChartDataPoint[] = weekStarts.map(weekStart => {
