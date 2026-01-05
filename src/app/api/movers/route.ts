@@ -33,7 +33,21 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const type = searchParams.get('type') as TitleType | null;
     const geo = searchParams.get('geo') || 'GLOBAL'; // GLOBAL or US
+    const language = searchParams.get('language'); // 'english' or 'non-english' (optional)
     const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 50);
+
+    // Map language filter to Netflix category patterns
+    const getCategoryFilter = () => {
+      if (!language) return undefined;
+      if (language === 'english') {
+        return type === 'SHOW' ? 'TV (English)' : 'Films (English)';
+      }
+      if (language === 'non-english') {
+        return type === 'SHOW' ? 'TV (Non-English)' : 'Films (Non-English)';
+      }
+      return undefined;
+    };
+    const categoryFilter = getCategoryFilter();
 
     // Get the most recent week with data
     const latestWeek = await prisma.netflixWeeklyGlobal.findFirst({
@@ -62,6 +76,7 @@ export async function GET(request: NextRequest) {
             where: {
               weekStart,
               title: whereClause,
+              ...(categoryFilter && { category: categoryFilter }),
             },
             include: {
               title: {
@@ -83,6 +98,7 @@ export async function GET(request: NextRequest) {
             where: {
               weekStart,
               title: whereClause,
+              ...(categoryFilter && { category: categoryFilter }),
             },
             include: {
               title: {
@@ -105,11 +121,17 @@ export async function GET(request: NextRequest) {
     const previousData =
       geo === 'US'
         ? await prisma.netflixWeeklyUS.findMany({
-            where: { weekStart: previousWeekStart },
+            where: {
+              weekStart: previousWeekStart,
+              ...(categoryFilter && { category: categoryFilter }),
+            },
             select: { titleId: true, rank: true },
           })
         : await prisma.netflixWeeklyGlobal.findMany({
-            where: { weekStart: previousWeekStart },
+            where: {
+              weekStart: previousWeekStart,
+              ...(categoryFilter && { category: categoryFilter }),
+            },
             select: { titleId: true, rank: true, views: true },
           });
 

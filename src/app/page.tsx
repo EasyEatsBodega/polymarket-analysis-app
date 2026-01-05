@@ -6,17 +6,17 @@ import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketComparison from "@/components/PolymarketComparison";
 import Header from "@/components/Header";
 
-type Tab = "global-shows" | "global-movies" | "us-shows" | "us-movies";
+type Tab = "shows-english" | "shows-non-english" | "films-english" | "films-non-english";
 
-const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; geo: "GLOBAL" | "US" }[] = [
-  { id: "global-shows", label: "Global Shows", type: "SHOW", geo: "GLOBAL" },
-  { id: "global-movies", label: "Global Movies", type: "MOVIE", geo: "GLOBAL" },
-  { id: "us-shows", label: "US Shows", type: "SHOW", geo: "US" },
-  { id: "us-movies", label: "US Movies", type: "MOVIE", geo: "US" },
+const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; geo: "GLOBAL" | "US"; language: "english" | "non-english" }[] = [
+  { id: "shows-english", label: "TV (English)", type: "SHOW", geo: "GLOBAL", language: "english" },
+  { id: "shows-non-english", label: "TV (Non-English)", type: "SHOW", geo: "GLOBAL", language: "non-english" },
+  { id: "films-english", label: "Films (English)", type: "MOVIE", geo: "GLOBAL", language: "english" },
+  { id: "films-non-english", label: "Films (Non-English)", type: "MOVIE", geo: "GLOBAL", language: "non-english" },
 ];
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>("global-shows");
+  const [activeTab, setActiveTab] = useState<Tab>("shows-english");
   const [searchQuery, setSearchQuery] = useState("");
 
   const activeTabConfig = tabs.find((t) => t.id === activeTab)!;
@@ -65,6 +65,7 @@ export default function Home() {
             <MoversTable
               type={activeTabConfig.type}
               geo={activeTabConfig.geo}
+              language={activeTabConfig.language}
               limit={10}
             />
           </section>

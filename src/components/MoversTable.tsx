@@ -19,6 +19,7 @@ interface Mover {
 interface MoversTableProps {
   type?: "SHOW" | "MOVIE";
   geo?: "GLOBAL" | "US";
+  language?: "english" | "non-english";
   limit?: number;
 }
 
@@ -85,7 +86,7 @@ function ForecastBand({ p10, p50, p90 }: { p10: number | null; p50: number | nul
   );
 }
 
-export default function MoversTable({ type, geo = "GLOBAL", limit = 10 }: MoversTableProps) {
+export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10 }: MoversTableProps) {
   const [movers, setMovers] = useState<Mover[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export default function MoversTable({ type, geo = "GLOBAL", limit = 10 }: Movers
         const params = new URLSearchParams();
         if (type) params.set("type", type);
         params.set("geo", geo);
+        if (language) params.set("language", language);
         params.set("limit", limit.toString());
 
         const response = await fetch(`/api/movers?${params}`);
@@ -117,7 +119,7 @@ export default function MoversTable({ type, geo = "GLOBAL", limit = 10 }: Movers
     }
 
     fetchMovers();
-  }, [type, geo, limit]);
+  }, [type, geo, language, limit]);
 
   if (loading) {
     return (
