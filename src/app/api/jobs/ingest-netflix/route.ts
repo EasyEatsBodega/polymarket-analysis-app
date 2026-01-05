@@ -7,8 +7,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestNetflixWeekly } from '@/jobs/ingestNetflixWeekly';
-export const dynamic = 'force-dynamic';
 import prisma from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 minutes for large data processing
 
 
 // Verify cron secret for security
