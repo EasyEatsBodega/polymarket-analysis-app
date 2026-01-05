@@ -59,20 +59,22 @@ export async function GET(request: NextRequest) {
     const latestWeek = weekStarts[weekStarts.length - 1];
 
     // Get top titles from the latest week
-    const topTitles = await prisma.netflixWeeklyGlobal.findMany({
+    const topRankings = await prisma.netflixWeeklyGlobal.findMany({
       where: {
         weekStart: latestWeek,
         ...(categoryFilter && { category: categoryFilter }),
-      },
-      include: {
-        title: true,
       },
       orderBy: { rank: 'asc' },
       take: limit,
     });
 
-    const titleIds = topTitles.map(t => t.titleId);
-    const titleMap = new Map(topTitles.map(t => [t.titleId, t.title]));
+    const titleIds = topRankings.map(t => t.titleId);
+
+    // Fetch title details separately
+    const titlesData = await prisma.title.findMany({
+      where: { id: { in: titleIds } },
+    });
+    const titleMap = new Map(titlesData.map(t => [t.id, t]));
 
     // Get historical data for these titles
     const historicalData = await prisma.netflixWeeklyGlobal.findMany({
@@ -114,7 +116,7 @@ export async function GET(request: NextRequest) {
       name: titleMap.get(id)?.canonicalName || 'Unknown',
       type: titleMap.get(id)?.type || 'SHOW',
       color: getColorForIndex(index),
-      currentRank: topTitles.find(t => t.titleId === id)?.rank || null,
+      currentRank: topRankings.find(t => t.titleId === id)?.rank || null,
     }));
 
     return NextResponse.json({
