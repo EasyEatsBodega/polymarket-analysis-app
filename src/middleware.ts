@@ -6,18 +6,18 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',         // Auth pages
   '/sign-up(.*)',
   '/api/health(.*)',      // Health check
-  '/api/titles',          // Public title list
+  '/api/titles(.*)',      // Public title APIs
   '/api/movers',          // Public movers list
   '/api/breakouts',       // Public breakouts
   '/api/markets',         // Public markets
   '/api/forecasts',       // Public forecasts
+  '/api/jobs(.*)',        // Job APIs (use their own API key auth)
 ]);
 
 // Define which routes require admin access
 const isAdminRoute = createRouteMatcher([
   '/admin(.*)',           // Admin pages
   '/api/config(.*)',      // Config API
-  '/api/jobs(.*)',        // Job trigger APIs
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
@@ -37,7 +37,8 @@ export default clerkMiddleware(async (auth, req) => {
   // For admin routes, check for admin role (optional - can be configured in Clerk dashboard)
   if (isAdminRoute(req)) {
     const { sessionClaims } = await auth();
-    const metadata = sessionClaims?.metadata as { role?: string } | undefined; const isAdmin = metadata?.role === 'admin';
+    const metadata = sessionClaims?.metadata as { role?: string } | undefined;
+    const isAdmin = metadata?.role === 'admin';
 
     // For now, allow any authenticated user to access admin routes
     // In production, uncomment below to restrict to admins only
@@ -51,7 +52,7 @@ export default clerkMiddleware(async (auth, req) => {
 export const config = {
   matcher: [
     // Skip Next.js internals and static files
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    '/((?!_next|[^?]*\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],
