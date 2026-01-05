@@ -4,6 +4,7 @@ import { useState } from "react";
 import MoversTable from "@/components/MoversTable";
 import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketComparison from "@/components/PolymarketComparison";
+import RankTrendChart from "@/components/RankTrendChart";
 import Header from "@/components/Header";
 
 type Tab = "shows-english" | "shows-non-english" | "films-english" | "films-non-english";
@@ -53,10 +54,29 @@ export default function NetflixPage() {
         </div>
 
         <div className="mt-8">
+          {/* Rank Trend Chart */}
           <section className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
-                Top Movers - {activeTabConfig.label}
+                Rank Trends - {activeTabConfig.label}
+              </h2>
+              <span className="text-sm text-gray-500">
+                Last 8 weeks performance
+              </span>
+            </div>
+            <RankTrendChart
+              type={activeTabConfig.type}
+              language={activeTabConfig.language}
+              weeks={8}
+              limit={5}
+            />
+          </section>
+
+          {/* Top Movers Table */}
+          <section className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                Top 10 - {activeTabConfig.label}
               </h2>
               <span className="text-sm text-gray-500">
                 Sorted by Rank
