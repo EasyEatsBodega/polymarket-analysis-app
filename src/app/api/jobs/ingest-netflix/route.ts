@@ -23,12 +23,6 @@ function verifyCronSecret(request: NextRequest): boolean {
     return true;
   }
 
-  // Allow test trigger with special param (TEMPORARY - remove after testing)
-  const testTrigger = request.nextUrl.searchParams.get('test');
-  if (testTrigger === 'reingest2026') {
-    return true;
-  }
-
   return authHeader === `Bearer ${cronSecret}`;
 }
 
