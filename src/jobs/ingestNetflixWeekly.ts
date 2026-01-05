@@ -15,9 +15,9 @@ import { normalizeTitle, titlesMatch, mergeAliases } from '../lib/titleNormalize
 
 import prisma from '@/lib/prisma';
 
-// Netflix data URLs
-const NETFLIX_GLOBAL_URL = 'https://top10.netflix.com/data/all-weeks-global.xlsx';
-const NETFLIX_COUNTRIES_URL = 'https://top10.netflix.com/data/all-weeks-countries.xlsx';
+// Netflix data URLs (moved to tudum subdomain in late 2024)
+const NETFLIX_GLOBAL_URL = 'https://www.netflix.com/tudum/top10/data/all-weeks-global.xlsx';
+const NETFLIX_COUNTRIES_URL = 'https://www.netflix.com/tudum/top10/data/all-weeks-countries.xlsx';
 
 // Category mapping for TitleType
 const CATEGORY_TYPE_MAP: Record<string, TitleType> = {
@@ -34,7 +34,7 @@ interface GlobalRow {
   show_title: string;
   season_title?: string;
   weekly_hours_viewed: number;
-  runtime?: string;
+  runtime?: string | number;  // Can be hours as number (1.4333) or string ("1:30:00")
   weekly_views?: number;
   cumulative_weeks_in_top_10?: number;
 }
@@ -120,11 +120,18 @@ function parseWeekRange(week: string | Date | number): { weekStart: Date; weekEn
 }
 
 /**
- * Parse runtime string to hours (e.g., "2:30:00" -> 2.5)
+ * Parse runtime to hours
+ * Handles both number format (1.4333 hours) and string format ("1:30:00")
  */
-function parseRuntimeHours(runtime: string | undefined): number | null {
-  if (!runtime) return null;
+function parseRuntimeHours(runtime: string | number | undefined): number | null {
+  if (runtime === undefined || runtime === null) return null;
 
+  // If already a number, return it directly (Netflix now uses decimal hours)
+  if (typeof runtime === 'number') {
+    return runtime;
+  }
+
+  // String format like "1:30:00" (legacy format)
   const parts = runtime.split(':').map(Number);
   if (parts.length === 3) {
     return parts[0] + parts[1] / 60 + parts[2] / 3600;
@@ -218,8 +225,11 @@ async function processGlobalData(
 
   for (const row of rows) {
     try {
-      const titleName = row.season_title || row.show_title;
-      if (!titleName) continue;
+      // Use season_title for shows with seasons, otherwise show_title
+      // Netflix uses "N/A" string (not null) for entries without season info
+      const seasonTitle = row.season_title && row.season_title !== 'N/A' ? row.season_title : null;
+      const titleName = seasonTitle || row.show_title;
+      if (!titleName || titleName === 'N/A') continue;
 
       const type = CATEGORY_TYPE_MAP[row.category];
       if (!type) {
@@ -286,8 +296,11 @@ async function processUSData(
 
   for (const row of usRows) {
     try {
-      const titleName = row.season_title || row.show_title;
-      if (!titleName) continue;
+      // Use season_title for shows with seasons, otherwise show_title
+      // Netflix uses "N/A" string (not null) for entries without season info
+      const seasonTitle = row.season_title && row.season_title !== 'N/A' ? row.season_title : null;
+      const titleName = seasonTitle || row.show_title;
+      if (!titleName || titleName === 'N/A') continue;
 
       const type = CATEGORY_TYPE_MAP[row.category];
       if (!type) {
