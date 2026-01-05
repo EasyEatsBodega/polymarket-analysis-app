@@ -15,17 +15,17 @@ export default function Header() {
             </div>
             <div>
               <h1 className="text-xl font-bold">PredictEasy</h1>
-              <p className="text-xs text-dust-grey">Netflix Intelligence</p>
+              <p className="text-xs text-dust-grey">Make Prediction Trading Easier</p>
             </div>
           </Link>
 
           {/* Navigation */}
           <nav className="hidden md:flex items-center gap-6">
             <Link
-              href="/"
+              href="/netflix"
               className="text-dust-grey hover:text-white transition-colors"
             >
-              Dashboard
+              Netflix
             </Link>
             <SignedIn>
               <Link
