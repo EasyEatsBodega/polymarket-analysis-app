@@ -341,9 +341,26 @@ async function processUSData(
 }
 
 /**
- * Main ingestion function
+ * Filter rows to only include recent weeks
  */
-export async function ingestNetflixWeekly(): Promise<IngestResult> {
+function filterRecentWeeks<T extends { week: string | Date | number }>(
+  rows: T[],
+  weeksLimit: number
+): T[] {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - weeksLimit * 7);
+
+  return rows.filter(row => {
+    const { weekStart } = parseWeekRange(row.week);
+    return weekStart >= cutoffDate;
+  });
+}
+
+/**
+ * Main ingestion function
+ * @param weeksLimit - Only process data from the last N weeks (default: 8, 0 = all)
+ */
+export async function ingestNetflixWeekly(weeksLimit: number = 8): Promise<IngestResult> {
   const result: IngestResult = {
     globalRowsProcessed: 0,
     usRowsProcessed: 0,
@@ -378,11 +395,27 @@ export async function ingestNetflixWeekly(): Promise<IngestResult> {
 
   try {
     // Download and process global data
-    const globalRows = await downloadAndParseXLSX<GlobalRow>(NETFLIX_GLOBAL_URL);
+    let globalRows = await downloadAndParseXLSX<GlobalRow>(NETFLIX_GLOBAL_URL);
+
+    // Filter to recent weeks if limit is set
+    if (weeksLimit > 0) {
+      const originalCount = globalRows.length;
+      globalRows = filterRecentWeeks(globalRows, weeksLimit);
+      console.log(`Filtered global rows: ${originalCount} -> ${globalRows.length} (last ${weeksLimit} weeks)`);
+    }
+
     await processGlobalData(globalRows, titleCache, result);
 
     // Download and process US data
-    const countryRows = await downloadAndParseXLSX<CountryRow>(NETFLIX_COUNTRIES_URL);
+    let countryRows = await downloadAndParseXLSX<CountryRow>(NETFLIX_COUNTRIES_URL);
+
+    // Filter to recent weeks if limit is set
+    if (weeksLimit > 0) {
+      const originalCount = countryRows.length;
+      countryRows = filterRecentWeeks(countryRows, weeksLimit);
+      console.log(`Filtered country rows: ${originalCount} -> ${countryRows.length} (last ${weeksLimit} weeks)`);
+    }
+
     await processUSData(countryRows, titleCache, result);
 
     // Calculate title stats
