@@ -7,11 +7,11 @@
  * - Forecasts
  * - Linked Polymarket markets
  */
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
-const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
@@ -67,7 +67,6 @@ export async function GET(
       week: w.weekStart.toISOString(),
       rank: w.rank,
       views: w.views,
-      hoursViewed: w.hoursViewed,
       category: w.category,
     }));
 
@@ -83,7 +82,6 @@ export async function GET(
       .map((s) => ({
         date: s.date.toISOString(),
         value: s.value,
-        geo: s.geo,
       }));
 
     const wikipediaSignals = title.dailySignals
@@ -137,8 +135,6 @@ export async function GET(
         canonicalName: title.canonicalName,
         type: title.type,
         tmdbId: title.tmdbId,
-        releaseDate: title.releaseDate?.toISOString(),
-        runtime: title.runtime,
         aliases: title.aliases,
         rankings: {
           global: globalRanks,

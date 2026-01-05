@@ -12,7 +12,7 @@ import { PrismaClient, GeoRegion, SignalSource } from '@prisma/client';
 import googleTrends from 'google-trends-api';
 import axios from 'axios';
 
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
 
 // Wikipedia API endpoint for pageviews
 const WIKIPEDIA_API_BASE = 'https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article';

@@ -7,12 +7,12 @@
  * - Simple regression models
  */
 
-import { PrismaClient, ForecastTarget } from '@prisma/client';
+import { ForecastTarget } from '@prisma/client';
 import { SimpleLinearRegression } from 'ml-regression-simple-linear';
 import { standardDeviation } from 'simple-statistics';
 import { TitleFeatures, buildTitleFeatures, getMomentumWeights } from './featureBuilder';
 
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
 
 // Model version for tracking
 export const MODEL_VERSION = '1.0.0';
@@ -55,7 +55,7 @@ async function getHistoricalData(
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - weeksBack * 7);
 
-  if (target === 'GLOBAL_VIEWS') {
+  if (target === 'VIEWERSHIP') {
     const data = await prisma.netflixWeeklyGlobal.findMany({
       where: {
         titleId,
@@ -68,7 +68,7 @@ async function getHistoricalData(
     return data.map((d) => ({
       weekStart: d.weekStart,
       rank: d.rank,
-      views: d.views,
+      views: d.views ? Number(d.views) : null,
     }));
   } else {
     const data = await prisma.netflixWeeklyUS.findMany({
@@ -241,7 +241,7 @@ export async function generateViewsForecast(
   titleId: string,
   targetWeekStart: Date
 ): Promise<Forecast | null> {
-  const historical = await getHistoricalData(titleId, 'GLOBAL_VIEWS');
+  const historical = await getHistoricalData(titleId, 'VIEWERSHIP');
 
   const viewsData = historical.filter((d) => d.views !== null && d.views > 0);
 
@@ -304,7 +304,7 @@ export async function generateViewsForecast(
     titleId,
     weekStart: targetWeekStart,
     weekEnd,
-    target: 'GLOBAL_VIEWS',
+    target: 'VIEWERSHIP',
     p10,
     p50,
     p90,
@@ -348,7 +348,7 @@ export async function generateAllForecasts(
   for (const title of titles) {
     try {
       // Generate US rank forecast
-      const usRankForecast = await generateForecast(title.id, targetWeekStart, 'US_RANK');
+      const usRankForecast = await generateForecast(title.id, targetWeekStart, 'RANK');
       if (usRankForecast) {
         forecasts.push(usRankForecast);
       }
@@ -378,11 +378,10 @@ export async function saveForecasts(forecasts: Forecast[]): Promise<number> {
     try {
       await prisma.forecastWeekly.upsert({
         where: {
-          titleId_weekStart_target_modelVersion: {
+          titleId_weekStart_target: {
             titleId: forecast.titleId,
             weekStart: forecast.weekStart,
             target: forecast.target,
-            modelVersion: MODEL_VERSION,
           },
         },
         create: {

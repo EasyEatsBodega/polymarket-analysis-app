@@ -7,9 +7,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestDailySignals } from '@/jobs/ingestDailySignals';
-import { PrismaClient } from '@prisma/client';
+export const dynamic = 'force-dynamic';
+import prisma from '@/lib/prisma';
 
-const prisma = new PrismaClient();
 
 // Verify cron secret for security
 function verifyCronSecret(request: NextRequest): boolean {

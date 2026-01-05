@@ -5,9 +5,9 @@
  * for use in momentum scoring and forecasting.
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+
+import prisma from '@/lib/prisma';
 
 export interface TitleFeatures {
   titleId: string;
@@ -262,7 +262,7 @@ export async function buildTitleFeatures(
   // Calculate deltas
   const globalRankDelta = calculateRankDelta(currentGlobal?.rank ?? null, previousGlobal?.rank ?? null);
   const usRankDelta = calculateRankDelta(currentUS?.rank ?? null, previousUS?.rank ?? null);
-  const viewsGrowthPct = calculateGrowthPct(currentGlobal?.views ?? null, previousGlobal?.views ?? null);
+  const viewsGrowthPct = calculateGrowthPct(currentGlobal?.views ? Number(currentGlobal.views) : null, previousGlobal?.views ? Number(previousGlobal.views) : null);
   const trendsDelta = calculateGrowthPct(trendsGlobal, prevTrendsGlobal);
   const wikipediaDelta = calculateGrowthPct(wikipediaViews, prevWikipediaViews);
 
@@ -288,8 +288,8 @@ export async function buildTitleFeatures(
     weekStart,
     globalRank: currentGlobal?.rank ?? null,
     usRank: currentUS?.rank ?? null,
-    globalViews: currentGlobal?.views ?? null,
-    globalHoursViewed: currentGlobal?.hoursViewed ?? null,
+    globalViews: currentGlobal?.views ? Number(currentGlobal.views) : null,
+    globalHoursViewed: currentGlobal?.hoursViewed ? Number(currentGlobal.hoursViewed) : null,
     globalRankDelta,
     usRankDelta,
     viewsGrowthPct,

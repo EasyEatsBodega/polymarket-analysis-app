@@ -13,7 +13,7 @@ import * as XLSX from 'xlsx';
 import { PrismaClient, TitleType } from '@prisma/client';
 import { normalizeTitle, titlesMatch, mergeAliases } from '../lib/titleNormalize';
 
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
 
 // Netflix data URLs
 const NETFLIX_GLOBAL_URL = 'https://top10.netflix.com/data/all-weeks-global.xlsx';

@@ -7,10 +7,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { generateForecastsJob } from '@/jobs/generateForecasts';
+export const dynamic = 'force-dynamic';
 import { MODEL_VERSION } from '@/lib/forecaster';
-import { PrismaClient } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
-const prisma = new PrismaClient();
 
 // Verify cron secret for security
 function verifyCronSecret(request: NextRequest): boolean {

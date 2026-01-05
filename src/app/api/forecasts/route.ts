@@ -5,9 +5,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient, ForecastTarget, TitleType } from '@prisma/client';
+import { ForecastTarget, TitleType } from '@prisma/client';
+import prisma from '@/lib/prisma';
 
-const prisma = new PrismaClient();
+export const dynamic = 'force-dynamic';
 
 export interface ForecastResponse {
   id: string;

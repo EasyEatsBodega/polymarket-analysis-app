@@ -5,10 +5,10 @@
  * Fetches current prices and stores historical snapshots.
  */
 
-import { PrismaClient } from '@prisma/client';
+
 import axios from 'axios';
 
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
 
 // Polymarket API endpoints
 const POLYMARKET_API_BASE = 'https://clob.polymarket.com';
@@ -235,7 +235,7 @@ async function syncMarkets(events: PolymarketEvent[], result: SyncResult): Promi
           });
 
           if (marketRecord) {
-            await prisma.polymarketPrice.create({
+            await prisma.marketPriceSnapshot.create({
               data: {
                 marketId: marketRecord.id,
                 timestamp: new Date(),
@@ -256,9 +256,9 @@ async function syncMarkets(events: PolymarketEvent[], result: SyncResult): Promi
           });
 
           if (marketRecord) {
-            const existingLink = await prisma.titleMarketLink.findUnique({
+            const existingLink = await prisma.marketTitleLink.findUnique({
               where: {
-                titleId_marketId: {
+                marketId_titleId: {
                   titleId,
                   marketId: marketRecord.id,
                 },
@@ -266,7 +266,7 @@ async function syncMarkets(events: PolymarketEvent[], result: SyncResult): Promi
             });
 
             if (!existingLink) {
-              await prisma.titleMarketLink.create({
+              await prisma.marketTitleLink.create({
                 data: { titleId, marketId: marketRecord.id },
               });
               result.titleLinksCreated++;
@@ -297,7 +297,7 @@ async function snapshotPrices(result: SyncResult): Promise<void> {
     try {
       const details = await getMarketDetails(market.conditionId);
       if (details) {
-        await prisma.polymarketPrice.create({
+        await prisma.marketPriceSnapshot.create({
           data: {
             marketId: market.id,
             timestamp: new Date(),

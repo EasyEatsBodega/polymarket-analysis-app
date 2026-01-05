@@ -5,10 +5,10 @@
  * Uses feature data and historical patterns.
  */
 
-import { PrismaClient } from '@prisma/client';
+
 import { generateAllForecasts, saveForecasts, MODEL_VERSION } from '../lib/forecaster';
 
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
 
 interface ForecastJobResult {
   forecastsGenerated: number;
