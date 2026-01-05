@@ -161,7 +161,9 @@ export default function RankTrendChart({
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: title.color }}
             />
-            <span className="max-w-[180px] truncate">{title.name}</span>
+            <span className={`max-w-[180px] truncate ${selectedTitles.has(title.id) ? "text-gray-900" : "text-gray-400"}`}>
+              {title.name}
+            </span>
             {title.currentRank && (
               <span className={`text-xs ${selectedTitles.has(title.id) ? "text-gray-600" : "text-gray-500"}`}>#{title.currentRank}</span>
             )}
