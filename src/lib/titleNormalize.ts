@@ -52,11 +52,6 @@ const ROMAN_NUMERALS: Record<string, number> = {
   'XI': 11, 'XII': 12, 'XIII': 13, 'XIV': 14, 'XV': 15,
 };
 
-// Reverse mapping
-const NUMBER_TO_ROMAN: Record<number, string> = Object.fromEntries(
-  Object.entries(ROMAN_NUMERALS).map(([k, v]) => [v, k])
-);
-
 export interface NormalizedTitle {
   canonical: string;        // The canonical/base title name
   normalized: string;       // Fully normalized version for matching
