@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
         tmdbId: title.tmdbId,
         latestGlobalRank: latestGlobal?.rank ?? null,
         latestUSRank: latestUS?.rank ?? null,
-        latestViews: latestGlobal?.views ?? null,
+        latestViews: latestGlobal?.views ? Number(latestGlobal.views) : null,
         momentumScore: explainJson?.momentumScore ?? null,
         lastUpdated: title.updatedAt.toISOString(),
       };

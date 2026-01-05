@@ -66,7 +66,7 @@ export async function GET(
     const globalRanks = title.weeklyGlobal.map((w: any) => ({
       week: w.weekStart.toISOString(),
       rank: w.rank,
-      views: w.views,
+      views: w.views ? Number(w.views) : null,
       category: w.category,
     }));
 
