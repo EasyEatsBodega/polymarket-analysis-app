@@ -2,25 +2,44 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #393E41;
+
+  /* Brand Colors */
+  --gunmetal: #393E41;
+  --dust-grey: #D3D0CB;
+  --old-gold: #E2C044;
+  --pine-blue: #587B7F;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-gunmetal: var(--gunmetal);
+  --color-dust-grey: var(--dust-grey);
+  --color-old-gold: var(--old-gold);
+  --color-pine-blue: var(--pine-blue);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Custom utility classes for brand colors */
+.bg-gunmetal { background-color: var(--gunmetal); }
+.bg-dust-grey { background-color: var(--dust-grey); }
+.bg-old-gold { background-color: var(--old-gold); }
+.bg-pine-blue { background-color: var(--pine-blue); }
+
+.text-gunmetal { color: var(--gunmetal); }
+.text-dust-grey { color: var(--dust-grey); }
+.text-old-gold { color: var(--old-gold); }
+.text-pine-blue { color: var(--pine-blue); }
+
+.border-gunmetal { border-color: var(--gunmetal); }
+.border-dust-grey { border-color: var(--dust-grey); }
+.border-old-gold { border-color: var(--old-gold); }
+.border-pine-blue { border-color: var(--pine-blue); }

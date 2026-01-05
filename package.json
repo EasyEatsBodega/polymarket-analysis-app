@@ -4,14 +4,28 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "test": "jest"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.36.5",
+    "@prisma/client": "^7.2.0",
+    "axios": "^1.13.2",
+    "google-trends-api": "^4.9.2",
+    "ml-regression": "^6.3.0",
     "next": "16.1.1",
+    "prisma": "^7.2.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "recharts": "^3.6.0",
+    "simple-statistics": "^7.8.8",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

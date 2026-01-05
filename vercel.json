@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/jobs/signals",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/jobs/forecast",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/jobs/ingest_weekly",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/jobs/polymarket",
+      "schedule": "0 */12 * * *"
+    }
+  ]
+}
