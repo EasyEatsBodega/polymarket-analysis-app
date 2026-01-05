@@ -21,32 +21,13 @@ const isAdminRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Allow public routes
+  // Allow public routes without any auth check
   if (isPublicRoute(req)) {
     return;
   }
 
-  // Protect all non-public routes
-  const { userId } = await auth();
-
-  if (!userId) {
-    const { redirectToSignIn } = await auth();
-    return redirectToSignIn();
-  }
-
-  // For admin routes, check for admin role (optional - can be configured in Clerk dashboard)
-  if (isAdminRoute(req)) {
-    const { sessionClaims } = await auth();
-    const metadata = sessionClaims?.metadata as { role?: string } | undefined;
-    const isAdmin = metadata?.role === 'admin';
-
-    // For now, allow any authenticated user to access admin routes
-    // In production, uncomment below to restrict to admins only
-    // if (!isAdmin) {
-    //   return new Response('Forbidden', { status: 403 });
-    // }
-    void isAdmin; // Suppress unused variable warning
-  }
+  // For protected routes, require authentication
+  await auth.protect();
 });
 
 export const config = {
