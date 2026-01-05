@@ -28,7 +28,7 @@ const CATEGORY_TYPE_MAP: Record<string, TitleType> = {
 };
 
 interface GlobalRow {
-  week: string;
+  week: string | Date | number;  // Can be string, Date object, or Excel serial number
   category: string;
   weekly_rank: number;
   show_title: string;
@@ -42,7 +42,7 @@ interface GlobalRow {
 interface CountryRow {
   country_iso2: string;
   country_name: string;
-  week: string;
+  week: string | Date | number;  // Can be string, Date object, or Excel serial number
   category: string;
   weekly_rank: number;
   show_title: string;
@@ -78,11 +78,30 @@ async function downloadAndParseXLSX<T>(url: string): Promise<T[]> {
 }
 
 /**
- * Parse week string to date range
- * Format: "2024-01-01 - 2024-01-07" or similar
+ * Parse week to date range
+ * Handles: string "2024-01-01 - 2024-01-07", Date objects, or Excel serial numbers
  */
-function parseWeekRange(weekStr: string): { weekStart: Date; weekEnd: Date } {
-  // Split on " - " or " – " (with spaces to avoid splitting date hyphens)
+function parseWeekRange(week: string | Date | number): { weekStart: Date; weekEnd: Date } {
+  // If it's already a Date object (XLSX can parse dates)
+  if (week instanceof Date) {
+    const start = new Date(week);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { weekStart: start, weekEnd: end };
+  }
+
+  // If it's an Excel serial date number
+  if (typeof week === 'number') {
+    // Excel dates are days since 1899-12-30 (with a leap year bug)
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const start = new Date(excelEpoch.getTime() + week * 24 * 60 * 60 * 1000);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { weekStart: start, weekEnd: end };
+  }
+
+  // String format - split on " - " or " – " (with spaces to avoid splitting date hyphens)
+  const weekStr = String(week);
   const parts = weekStr.split(/\s+[-–]\s+/);
 
   if (parts.length >= 2) {
@@ -92,7 +111,7 @@ function parseWeekRange(weekStr: string): { weekStart: Date; weekEnd: Date } {
     };
   }
 
-  // Single date - assume it's the week start, end is 6 days later
+  // Single date string - assume it's the week start, end is 6 days later
   const start = new Date(weekStr.trim());
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
