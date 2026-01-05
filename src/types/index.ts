@@ -11,7 +11,7 @@ export type GeoRegion = "US" | "GLOBAL";
 export type ForecastTarget = "GLOBAL_VIEWS" | "US_RANK";
 
 // Job status
-export type JobStatus = "SUCCESS" | "FAIL";
+export type JobStatus = "SUCCESS" | "FAIL" | "RUNNING";
 
 // Dashboard tab types
 export type DashboardTab = "global-shows" | "global-movies" | "us-shows" | "us-movies";

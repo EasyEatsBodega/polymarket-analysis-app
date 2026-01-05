@@ -1,14 +1,261 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// PredictEasy - Polymarket Intelligence Platform
+// Prisma Schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum TitleType {
+  SHOW
+  MOVIE
+}
+
+enum SignalSource {
+  TRENDS
+  WIKIPEDIA
+}
+
+enum GeoRegion {
+  US
+  GLOBAL
+}
+
+enum ForecastTarget {
+  GLOBAL_VIEWS
+  US_RANK
+}
+
+enum JobStatus {
+  SUCCESS
+  FAIL
+  RUNNING
+}
+
+// =============================================================================
+// NETFLIX MODULE - Titles & Rankings
+// =============================================================================
+
+// Core title entity - represents a Netflix show or movie
+model Title {
+  id            String   @id @default(uuid())
+  canonicalName String
+  type          TitleType
+  tmdbId        Int?
+  releaseDate   DateTime?
+  runtime       Int?      // runtime in minutes
+  aliases       Json?     // array of alternative names
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  weeklyGlobal    NetflixWeeklyGlobal[]
+  weeklyUS        NetflixWeeklyUS[]
+  mostPopular     NetflixMostPopular[]
+  dailySignals    DailySignal[]
+  forecasts       ForecastWeekly[]
+  marketLinks     TitleMarketLink[]
+
+  @@unique([canonicalName, type])
+  @@index([type])
+  @@index([canonicalName])
+}
+
+// Weekly global Top 10 data from Netflix
+model NetflixWeeklyGlobal {
+  id           String   @id @default(uuid())
+  titleId      String
+  weekStart    DateTime
+  weekEnd      DateTime
+  category     String   // e.g., "TV (English)", "Films (Non-English)"
+  rank         Int
+  views        Float    // weekly views
+  hoursViewed  Float
+  runtimeHours Float?
+  createdAt    DateTime @default(now())
+
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, weekStart, category])
+  @@index([weekStart])
+  @@index([category])
+  @@index([rank])
+}
+
+// Weekly US Top 10 data from Netflix countries file
+model NetflixWeeklyUS {
+  id           String   @id @default(uuid())
+  titleId      String
+  weekStart    DateTime
+  weekEnd      DateTime
+  category     String
+  rank         Int
+  createdAt    DateTime @default(now())
+
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, weekStart, category])
+  @@index([weekStart])
+  @@index([rank])
+}
+
+// Netflix most popular all-time (for baseline/context)
+model NetflixMostPopular {
+  id                    String   @id @default(uuid())
+  titleId               String
+  category              String
+  rank                  Int
+  viewsFirst91Days      Float?
+  hoursViewedFirst91Days Float?
+  runtimeHours          Float?
+  createdAt             DateTime @default(now())
+
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, category])
+}
+
+// =============================================================================
+// SIGNALS - Daily data for nowcasting
+// =============================================================================
+
+// Daily signals from Google Trends and Wikipedia
+model DailySignal {
+  id        String       @id @default(uuid())
+  titleId   String
+  date      DateTime
+  source    SignalSource
+  geo       GeoRegion
+  value     Float
+  createdAt DateTime     @default(now())
+
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, date, source, geo])
+  @@index([date])
+  @@index([source])
+  @@index([geo])
+}
+
+// =============================================================================
+// FORECASTING
+// =============================================================================
+
+// Weekly forecasts with confidence intervals
+model ForecastWeekly {
+  id           String         @id @default(uuid())
+  titleId      String
+  weekStart    DateTime
+  weekEnd      DateTime
+  target       ForecastTarget
+  p10          Float          // optimistic (10th percentile)
+  p50          Float          // median prediction
+  p90          Float          // pessimistic (90th percentile)
+  modelVersion String
+  generatedAt  DateTime       @default(now())
+  explainJson  Json?          // feature importance, drivers
+
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, weekStart, target, modelVersion])
+  @@index([weekStart])
+  @@index([target])
+}
+
+// =============================================================================
+// POLYMARKET INTEGRATION
+// =============================================================================
+
+// Tracked Polymarket markets
+model PolymarketMarket {
+  id              String   @id @default(uuid())
+  conditionId     String   @unique // Polymarket's unique identifier
+  slug            String?
+  question        String
+  description     String?
+  outcomes        Json     // array of outcome objects
+  category        String?  // e.g., "Entertainment", "Netflix"
+  endDate         DateTime?
+  resolved        Boolean  @default(false)
+  resolutionOutcome String?
+  isActive        Boolean  @default(true)
+  isManuallyAdded Boolean  @default(false) // vs auto-discovered
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  prices     PolymarketPrice[]
+  titleLinks TitleMarketLink[]
+
+  @@index([category])
+  @@index([isActive])
+  @@index([resolved])
+}
+
+// Historical price snapshots (every 12 hours)
+model PolymarketPrice {
+  id         String   @id @default(uuid())
+  marketId   String
+  timestamp  DateTime
+  prices     Json     // { outcomeId: price, ... }
+  volume     Float?
+  liquidity  Float?
+  createdAt  DateTime @default(now())
+
+  market PolymarketMarket @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@unique([marketId, timestamp])
+  @@index([timestamp])
+}
+
+// Link between Netflix titles and Polymarket markets
+model TitleMarketLink {
+  id        String   @id @default(uuid())
+  titleId   String
+  marketId  String
+  createdAt DateTime @default(now())
+
+  title  Title            @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  market PolymarketMarket @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@unique([titleId, marketId])
+}
+
+// =============================================================================
+// ADMIN & CONFIGURATION
+// =============================================================================
+
+// App configuration (admin-adjustable settings)
+model AppConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?  // Clerk user ID
+}
+
+// =============================================================================
+// JOBS & LOGGING
+// =============================================================================
+
+// Job execution history
+model JobRun {
+  id          String    @id @default(uuid())
+  jobName     String
+  status      JobStatus
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  detailsJson Json?     // counts, errors, metadata
+  error       String?
+
+  @@index([jobName])
+  @@index([status])
+  @@index([startedAt])
 }
