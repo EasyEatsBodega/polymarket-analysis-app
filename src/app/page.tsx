@@ -4,6 +4,7 @@ import { useState } from "react";
 import MoversTable from "@/components/MoversTable";
 import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketComparison from "@/components/PolymarketComparison";
+import Header from "@/components/Header";
 
 type Tab = "global-shows" | "global-movies" | "us-shows" | "us-movies";
 
@@ -22,41 +23,28 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <header className="border-b border-dust-grey">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <h1 className="text-2xl font-bold text-gunmetal">PredictEasy</h1>
-            <div className="flex items-center gap-4">
-              <input
-                type="text"
-                placeholder="Search titles..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 border border-dust-grey rounded-lg focus:outline-none focus:ring-2 focus:ring-pine-blue"
-              />
-              <button className="px-4 py-2 bg-old-gold text-gunmetal font-medium rounded-lg hover:bg-opacity-90 transition-colors">
-                Sign In
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1">
-        {/* Tabs */}
+      <div className="border-b border-dust-grey bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <input
+            type="text"
+            placeholder="Search titles..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full max-w-md px-4 py-2 border border-dust-grey rounded-lg focus:outline-none focus:ring-2 focus:ring-pine-blue"
+          />
+        </div>
+      </div>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
         <div className="border-b border-dust-grey">
           <nav className="flex gap-8">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? "border-old-gold text-gunmetal"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
+                className={}
               >
                 {tab.label}
               </button>
@@ -64,9 +52,7 @@ export default function Home() {
           </nav>
         </div>
 
-        {/* Tab Content */}
         <div className="mt-8">
-          {/* Movers Table */}
           <section className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
@@ -83,7 +69,6 @@ export default function Home() {
             />
           </section>
 
-          {/* Breakouts Section */}
           <section className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
@@ -96,7 +81,6 @@ export default function Home() {
             <BreakoutGrid type={activeTabConfig.type} limit={6} />
           </section>
 
-          {/* Polymarket Comparison */}
           <section>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
@@ -111,7 +95,6 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-dust-grey mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <p className="text-center text-sm text-gray-500">
