@@ -162,7 +162,7 @@ async function findOrCreateTitle(
       data: {
         canonicalName: normalized.canonical,
         type,
-        aliases: name !== normalized.canonical ? [name] : null,
+        aliases: name !== normalized.canonical ? [name] : [],
       },
     });
   } else if (name !== normalized.canonical) {

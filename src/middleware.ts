@@ -37,7 +37,7 @@ export default clerkMiddleware(async (auth, req) => {
   // For admin routes, check for admin role (optional - can be configured in Clerk dashboard)
   if (isAdminRoute(req)) {
     const { sessionClaims } = await auth();
-    const isAdmin = sessionClaims?.metadata?.role === 'admin';
+    const metadata = sessionClaims?.metadata as { role?: string } | undefined; const isAdmin = metadata?.role === 'admin';
 
     // For now, allow any authenticated user to access admin routes
     // In production, uncomment below to restrict to admins only

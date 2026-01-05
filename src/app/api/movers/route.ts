@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         currentRank,
         previousRank,
         rankChange,
-        views: 'views' in current ? current.views : null,
+        views: 'views' in current ? (current.views as number | null) : null,
         momentumScore,
         forecastP10: forecast?.p10 ?? null,
         forecastP50: forecast?.p50 ?? null,

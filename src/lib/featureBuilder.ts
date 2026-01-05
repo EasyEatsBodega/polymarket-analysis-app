@@ -64,7 +64,7 @@ export async function getMomentumWeights(): Promise<MomentumWeights> {
     });
 
     if (config?.value) {
-      const value = config.value as MomentumWeights;
+      const value = config.value as unknown as MomentumWeights;
       return {
         trendsWeight: value.trendsWeight ?? DEFAULT_WEIGHTS.trendsWeight,
         wikipediaWeight: value.wikipediaWeight ?? DEFAULT_WEIGHTS.wikipediaWeight,

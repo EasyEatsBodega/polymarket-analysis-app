@@ -75,10 +75,11 @@ export async function GET(request: NextRequest) {
         volume: latestPrice?.volume ?? null,
         liquidity: latestPrice?.liquidity ?? null,
         lastUpdated: latestPrice?.timestamp.toISOString() ?? null,
-        linkedTitles: market.titleLinks
-          ? market.titleLinks.map((link) => ({
-              id: link.title.id,
-              name: link.title.canonicalName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        linkedTitles: Array.isArray(market.titleLinks)
+          ? (market.titleLinks as any[]).map((link) => ({
+              id: link.title?.id ?? '',
+              name: link.title?.canonicalName ?? '',
             }))
           : [],
       };
