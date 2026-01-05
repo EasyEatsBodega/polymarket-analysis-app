@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Format response
-    const formattedTitles = titles.map((title) => {
+    const formattedTitles = titles.map((title: any) => {
       const latestGlobal = title.weeklyGlobal[0];
       const latestUS = title.weeklyUS[0];
       const latestForecast = title.forecasts[0];

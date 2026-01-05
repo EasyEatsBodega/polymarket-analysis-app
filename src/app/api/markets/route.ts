@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
-    const formattedMarkets: MarketResponse[] = markets.map((market) => {
+    const formattedMarkets: MarketResponse[] = markets.map((market: any) => {
       const latestPrice = market.prices[0];
 
       return {

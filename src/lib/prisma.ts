@@ -6,8 +6,12 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
+  // Use PRISMA_DATABASE_URL for Accelerate (prisma+postgres://...)
+  // or fall back to DATABASE_URL for direct connection
+  const accelerateUrl = process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL;
+  
   const client = new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL,
+    accelerateUrl,
     log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
   }).$extends(withAccelerate());
   

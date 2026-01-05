@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
     const previousMap = new Map(previousData.map((p) => [p.titleId, p]));
 
     // Build response with momentum calculation
-    const movers: MoverResponse[] = currentData.map((current) => {
+    const movers: MoverResponse[] = currentData.map((current: any) => {
       const previous = previousMap.get(current.titleId);
       const currentRank = current.rank;
       const previousRank = previous?.rank ?? null;

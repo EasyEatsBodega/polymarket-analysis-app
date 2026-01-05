@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Format response
-    const formattedForecasts: ForecastResponse[] = forecasts.map((f) => {
+    const formattedForecasts: ForecastResponse[] = forecasts.map((f: any) => {
       const explainJson = f.explainJson as {
         momentumScore?: number;
         accelerationScore?: number;
