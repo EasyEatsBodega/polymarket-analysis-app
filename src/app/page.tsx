@@ -1,21 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import MoversTable from "@/components/MoversTable";
+import BreakoutGrid from "@/components/BreakoutCard";
 
 type Tab = "global-shows" | "global-movies" | "us-shows" | "us-movies";
 
-const tabs: { id: Tab; label: string }[] = [
-  { id: "global-shows", label: "Global Shows" },
-  { id: "global-movies", label: "Global Movies" },
-  { id: "us-shows", label: "US Shows" },
-  { id: "us-movies", label: "US Movies" },
+const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; geo: "GLOBAL" | "US" }[] = [
+  { id: "global-shows", label: "Global Shows", type: "SHOW", geo: "GLOBAL" },
+  { id: "global-movies", label: "Global Movies", type: "MOVIE", geo: "GLOBAL" },
+  { id: "us-shows", label: "US Shows", type: "SHOW", geo: "US" },
+  { id: "us-movies", label: "US Movies", type: "MOVIE", geo: "US" },
 ];
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("global-shows");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const activeTabConfig = tabs.find((t) => t.id === activeTab)!;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
       <header className="border-b border-dust-grey">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -25,6 +30,8 @@ export default function Home() {
               <input
                 type="text"
                 placeholder="Search titles..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="px-4 py-2 border border-dust-grey rounded-lg focus:outline-none focus:ring-2 focus:ring-pine-blue"
               />
               <button className="px-4 py-2 bg-old-gold text-gunmetal font-medium rounded-lg hover:bg-opacity-90 transition-colors">
@@ -36,7 +43,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1">
         {/* Tabs */}
         <div className="border-b border-dust-grey">
           <nav className="flex gap-8">
@@ -44,7 +51,11 @@ export default function Home() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={}
+                className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? "border-old-gold text-gunmetal"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
               >
                 {tab.label}
               </button>
@@ -54,45 +65,46 @@ export default function Home() {
 
         {/* Tab Content */}
         <div className="mt-8">
-          {/* Movers Table Placeholder */}
+          {/* Movers Table */}
           <section className="mb-8">
-            <h2 className="text-xl font-semibold text-gunmetal mb-4">
-              Top Movers - {tabs.find((t) => t.id === activeTab)?.label}
-            </h2>
-            <div className="bg-dust-grey bg-opacity-20 rounded-lg p-8 text-center">
-              <p className="text-gray-500">
-                Movers table will be displayed here once data is ingested.
-              </p>
-              <p className="text-sm text-gray-400 mt-2">
-                Shows titles ranked by MomentumScore with forecast bands.
-              </p>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                Top Movers - {activeTabConfig.label}
+              </h2>
+              <span className="text-sm text-gray-500">
+                Ranked by Momentum Score
+              </span>
             </div>
+            <MoversTable
+              type={activeTabConfig.type}
+              geo={activeTabConfig.geo}
+              limit={10}
+            />
           </section>
 
-          {/* Breakouts Section Placeholder */}
+          {/* Breakouts Section */}
           <section className="mb-8">
-            <h2 className="text-xl font-semibold text-gunmetal mb-4">
-              Breakout Titles
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="border border-dust-grey rounded-lg p-4 bg-white"
-                >
-                  <div className="h-24 bg-dust-grey bg-opacity-30 rounded flex items-center justify-center">
-                    <span className="text-gray-400">Breakout Card {i}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                Breakout Titles
+              </h2>
+              <span className="text-sm text-gray-500">
+                High momentum + positive acceleration
+              </span>
             </div>
+            <BreakoutGrid type={activeTabConfig.type} limit={6} />
           </section>
 
           {/* Polymarket Comparison Placeholder */}
           <section>
-            <h2 className="text-xl font-semibold text-gunmetal mb-4">
-              Polymarket Signals
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                Polymarket Signals
+              </h2>
+              <span className="text-sm text-gray-500">
+                Model vs Market Comparison
+              </span>
+            </div>
             <div className="bg-pine-blue bg-opacity-10 rounded-lg p-8 text-center border border-pine-blue border-opacity-30">
               <p className="text-pine-blue font-medium">
                 Polymarket comparison data will appear here.
@@ -109,7 +121,7 @@ export default function Home() {
       <footer className="border-t border-dust-grey mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <p className="text-center text-sm text-gray-500">
-            PredictEasy - Netflix Intelligence Dashboard
+            PredictEasy - Polymarket Intelligence Platform
           </p>
         </div>
       </footer>
