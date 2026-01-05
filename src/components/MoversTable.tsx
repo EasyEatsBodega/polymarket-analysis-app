@@ -23,6 +23,9 @@ interface MoversTableProps {
   limit?: number;
 }
 
+type SortColumn = "rank" | "change" | "views" | "momentum";
+type SortOrder = "asc" | "desc";
+
 function formatViews(views: number | null): string {
   if (views === null) return "-";
   if (views >= 1000000) {
@@ -32,6 +35,55 @@ function formatViews(views: number | null): string {
     return `${(views / 1000).toFixed(0)}K`;
   }
   return views.toString();
+}
+
+function SortIcon({ active, order }: { active: boolean; order: SortOrder }) {
+  if (!active) {
+    return (
+      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+      </svg>
+    );
+  }
+  if (order === "asc") {
+    return (
+      <svg className="w-4 h-4 text-old-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 text-old-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+function SortableHeader({
+  label,
+  column,
+  currentSort,
+  currentOrder,
+  onSort,
+}: {
+  label: string;
+  column: SortColumn;
+  currentSort: SortColumn;
+  currentOrder: SortOrder;
+  onSort: (column: SortColumn) => void;
+}) {
+  const isActive = currentSort === column;
+  return (
+    <th
+      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+      onClick={() => onSort(column)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <SortIcon active={isActive} order={currentOrder} />
+      </div>
+    </th>
+  );
 }
 
 function RankChange({ change }: { change: number | null }) {
@@ -90,6 +142,20 @@ export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10
   const [movers, setMovers] = useState<Mover[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortColumn>("rank");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+
+  const handleSort = (column: SortColumn) => {
+    if (sortBy === column) {
+      // Toggle order if same column
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      // New column - set default order based on column type
+      setSortBy(column);
+      // Rank should default to asc (1 first), others default to desc (highest first)
+      setSortOrder(column === "rank" ? "asc" : "desc");
+    }
+  };
 
   useEffect(() => {
     async function fetchMovers() {
@@ -101,6 +167,8 @@ export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10
         if (type) params.set("type", type);
         params.set("geo", geo);
         if (language) params.set("language", language);
+        params.set("sort", sortBy);
+        params.set("order", sortOrder);
         params.set("limit", limit.toString());
 
         const response = await fetch(`/api/movers?${params}`);
@@ -119,7 +187,7 @@ export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10
     }
 
     fetchMovers();
-  }, [type, geo, language, limit]);
+  }, [type, geo, language, sortBy, sortOrder, limit]);
 
   if (loading) {
     return (
@@ -156,23 +224,39 @@ export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10
       <table className="min-w-full divide-y divide-dust-grey">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Rank
-            </th>
+            <SortableHeader
+              label="Rank"
+              column="rank"
+              currentSort={sortBy}
+              currentOrder={sortOrder}
+              onSort={handleSort}
+            />
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Title
             </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Change
-            </th>
+            <SortableHeader
+              label="Change"
+              column="change"
+              currentSort={sortBy}
+              currentOrder={sortOrder}
+              onSort={handleSort}
+            />
             {geo === "GLOBAL" && (
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Views
-              </th>
+              <SortableHeader
+                label="Views"
+                column="views"
+                currentSort={sortBy}
+                currentOrder={sortOrder}
+                onSort={handleSort}
+              />
             )}
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Momentum
-            </th>
+            <SortableHeader
+              label="Momentum"
+              column="momentum"
+              currentSort={sortBy}
+              currentOrder={sortOrder}
+              onSort={handleSort}
+            />
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Forecast (10-50-90)
             </th>

@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') as TitleType | null;
     const geo = searchParams.get('geo') || 'GLOBAL'; // GLOBAL or US
     const language = searchParams.get('language'); // 'english' or 'non-english' (optional)
+    const sortBy = searchParams.get('sort') || 'rank'; // 'rank', 'change', 'views', 'momentum'
+    const sortOrder = searchParams.get('order') || 'asc'; // 'asc' or 'desc'
     const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 50);
 
     // Map language filter to Netflix category patterns
@@ -167,8 +169,27 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Sort by momentum and limit
-    const sortedMovers = movers.sort((a, b) => b.momentumScore - a.momentumScore).slice(0, limit);
+    // Sort based on parameter
+    const sortedMovers = movers.sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'rank':
+          comparison = (a.currentRank ?? 999) - (b.currentRank ?? 999);
+          break;
+        case 'change':
+          comparison = (b.rankChange ?? -999) - (a.rankChange ?? -999); // Higher change first by default
+          break;
+        case 'views':
+          comparison = (b.views ?? 0) - (a.views ?? 0); // Higher views first by default
+          break;
+        case 'momentum':
+          comparison = b.momentumScore - a.momentumScore; // Higher momentum first by default
+          break;
+        default:
+          comparison = (a.currentRank ?? 999) - (b.currentRank ?? 999);
+      }
+      return sortOrder === 'desc' ? -comparison : comparison;
+    }).slice(0, limit);
 
     return NextResponse.json({
       success: true,
