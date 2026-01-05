@@ -49,18 +49,33 @@ export default function AdminPage() {
         />
       </div>
 
-      {/* Settings Link */}
-      <div className="bg-white border border-dust-grey rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-gunmetal mb-4">Configuration</h2>
-        <p className="text-gray-600 mb-4">
-          Adjust momentum score weights, breakout thresholds, and other settings.
-        </p>
-        <a
-          href="/admin/settings"
-          className="inline-block bg-pine-blue text-white px-4 py-2 rounded-lg hover:bg-opacity-90 transition-colors"
-        >
-          Open Settings
-        </a>
+      {/* Admin Links */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white border border-dust-grey rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gunmetal mb-4">Configuration</h2>
+          <p className="text-gray-600 mb-4">
+            Adjust momentum score weights, breakout thresholds, and other settings.
+          </p>
+          <a
+            href="/admin/settings"
+            className="inline-block bg-pine-blue text-white px-4 py-2 rounded-lg hover:bg-opacity-90 transition-colors"
+          >
+            Open Settings
+          </a>
+        </div>
+
+        <div className="bg-white border border-dust-grey rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gunmetal mb-4">Job History</h2>
+          <p className="text-gray-600 mb-4">
+            View past job runs, their status, and detailed results.
+          </p>
+          <a
+            href="/admin/jobs"
+            className="inline-block bg-old-gold text-gunmetal px-4 py-2 rounded-lg hover:bg-opacity-90 transition-colors font-medium"
+          >
+            View History
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -82,12 +97,12 @@ function JobCard({
       });
       const data = await response.json();
       if (data.success) {
-        alert(`Job started successfully! Job ID: ${data.jobRunId}`);
+        alert("Check console for details");
       } else {
-        alert(`Job failed: ${data.error}`);
+        alert("Check console for details");
       }
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } catch (_err) {
+      alert("Check console for details");
     }
   };
 
