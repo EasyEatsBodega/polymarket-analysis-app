@@ -3,6 +3,7 @@
 import { useState } from "react";
 import MoversTable from "@/components/MoversTable";
 import BreakoutGrid from "@/components/BreakoutCard";
+import PolymarketComparison from "@/components/PolymarketComparison";
 
 type Tab = "global-shows" | "global-movies" | "us-shows" | "us-movies";
 
@@ -95,7 +96,7 @@ export default function Home() {
             <BreakoutGrid type={activeTabConfig.type} limit={6} />
           </section>
 
-          {/* Polymarket Comparison Placeholder */}
+          {/* Polymarket Comparison */}
           <section>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
@@ -105,14 +106,7 @@ export default function Home() {
                 Model vs Market Comparison
               </span>
             </div>
-            <div className="bg-pine-blue bg-opacity-10 rounded-lg p-8 text-center border border-pine-blue border-opacity-30">
-              <p className="text-pine-blue font-medium">
-                Polymarket comparison data will appear here.
-              </p>
-              <p className="text-sm text-gray-500 mt-2">
-                Side-by-side forecast vs market prices for Netflix-related markets.
-              </p>
-            </div>
+            <PolymarketComparison />
           </section>
         </div>
       </main>
