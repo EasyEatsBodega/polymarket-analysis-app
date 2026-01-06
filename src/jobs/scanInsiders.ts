@@ -337,12 +337,22 @@ async function processWallet(
 
     // Use full history for first trade, scan trades for last trade
     const timestamps = trades.map((t) => t.timestamp.getTime());
+    const scanWindowFirstTrade = new Date(Math.min(...timestamps));
     const firstTradeAt = allTimestamps.length > 0
       ? new Date(Math.min(...allTimestamps))
-      : new Date(Math.min(...timestamps));
+      : scanWindowFirstTrade;
     const lastTradeAt = new Date(Math.max(...timestamps));
     const totalVolume = trades.reduce((sum, t) => sum + t.usdValue, 0);
     const actualTotalTrades = fullHistory.length;
+
+    // Log before/after comparison
+    const scanFirst = scanWindowFirstTrade.toISOString().split('T')[0];
+    const trueFirst = firstTradeAt.toISOString().split('T')[0];
+    if (scanFirst !== trueFirst) {
+      console.log(`  📅 ${address.slice(0, 8)}... firstTrade: ${scanFirst} (scan) → ${trueFirst} (actual) | ${actualTotalTrades} total trades`);
+    } else {
+      console.log(`  ✓ ${address.slice(0, 8)}... firstTrade: ${trueFirst} | ${actualTotalTrades} total trades`);
+    }
 
     let wallet;
     if (existingWallet) {
