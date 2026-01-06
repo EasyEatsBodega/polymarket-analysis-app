@@ -17,6 +17,7 @@ import {
   ProcessedTrade,
   getMarketResolution,
   getMarketPrices,
+  fetchTradesByWallet,
 } from '@/lib/polymarketClient';
 import { InsiderBadgeType } from '@prisma/client';
 
@@ -330,18 +331,27 @@ async function processWallet(
       where: { address },
     });
 
+    // Fetch wallet's FULL trade history to get true first trade date
+    const fullHistory = await fetchTradesByWallet(address);
+    const allTimestamps = fullHistory.map((t) => t.timestamp * 1000); // Unix to ms
+
+    // Use full history for first trade, scan trades for last trade
     const timestamps = trades.map((t) => t.timestamp.getTime());
-    const firstTradeAt = new Date(Math.min(...timestamps));
+    const firstTradeAt = allTimestamps.length > 0
+      ? new Date(Math.min(...allTimestamps))
+      : new Date(Math.min(...timestamps));
     const lastTradeAt = new Date(Math.max(...timestamps));
     const totalVolume = trades.reduce((sum, t) => sum + t.usdValue, 0);
+    const actualTotalTrades = fullHistory.length;
 
     let wallet;
     if (existingWallet) {
       wallet = await prisma.insiderWallet.update({
         where: { id: existingWallet.id },
         data: {
+          firstTradeAt, // Update with true first trade date
           lastTradeAt,
-          totalTrades: trades.length,
+          totalTrades: actualTotalTrades,
           totalVolume,
         },
       });
@@ -352,7 +362,7 @@ async function processWallet(
           address,
           firstTradeAt,
           lastTradeAt,
-          totalTrades: trades.length,
+          totalTrades: actualTotalTrades,
           totalVolume,
         },
       });

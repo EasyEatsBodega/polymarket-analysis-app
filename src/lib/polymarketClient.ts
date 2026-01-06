@@ -724,8 +724,8 @@ export async function scanForNewWallets(
     offset += limit;
 
     // Safety limit
-    if (offset > 10000) {
-      console.log('Reached safety limit of 10000 trades');
+    if (offset > 50000) {
+      console.log('Reached safety limit of 50000 trades');
       break;
     }
 
