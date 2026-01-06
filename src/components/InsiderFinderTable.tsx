@@ -190,6 +190,10 @@ function LoadingRow() {
         <div className="h-5 bg-gray-200 rounded w-24" />
       </td>
       <td className="px-4 py-3">
+        <div className="h-5 bg-gray-200 rounded w-40" />
+        <div className="h-3 bg-gray-200 rounded w-24 mt-1" />
+      </td>
+      <td className="px-4 py-3">
         <div className="h-5 bg-gray-200 rounded w-20" />
       </td>
       <td className="px-4 py-3">
@@ -350,6 +354,7 @@ export default function InsiderFinderTable({
           <thead>
             <tr className="bg-gray-50 text-left text-sm text-gray-500">
               <th className="px-4 py-3 font-medium">Wallet</th>
+              <th className="px-4 py-3 font-medium">Market</th>
               <th
                 className="px-4 py-3 font-medium cursor-pointer hover:text-gunmetal"
                 onClick={() => onSortChange("firstTradeAt")}
@@ -417,7 +422,7 @@ export default function InsiderFinderTable({
               </>
             ) : wallets.length === 0 ? (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={8}>
                   <EmptyState />
                 </td>
               </tr>
@@ -434,6 +439,20 @@ export default function InsiderFinderTable({
                       </code>
                       <CopyButton text={wallet.address} />
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {wallet.recentTrades.length > 0 ? (
+                      <div className="max-w-[200px]">
+                        <p className="text-sm text-gunmetal truncate" title={wallet.recentTrades[0].marketQuestion}>
+                          {wallet.recentTrades[0].marketQuestion}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {wallet.recentTrades[0].side} {wallet.recentTrades[0].outcomeName} @ {(wallet.recentTrades[0].price * 100).toFixed(0)}¢
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">-</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     {formatDate(wallet.firstTradeAt)}
