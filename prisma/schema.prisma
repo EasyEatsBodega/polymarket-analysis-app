@@ -278,6 +278,8 @@ enum InsiderBadgeType {
   PRE_MOVE        // Price moved 20%+ within 24h of trade
   LATE_WINNER     // Correct bet within 7 days of resolution
   FIRST_MOVER     // Among first 10 traders on market
+  FRESH_WALLET    // Wallet less than 7 days old
+  SINGLE_MARKET   // Only traded on one market
 }
 
 model InsiderWallet {

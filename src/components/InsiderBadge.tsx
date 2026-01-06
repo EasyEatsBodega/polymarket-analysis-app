@@ -9,7 +9,9 @@ export type BadgeType =
   | "LONG_SHOT"
   | "PRE_MOVE"
   | "LATE_WINNER"
-  | "FIRST_MOVER";
+  | "FIRST_MOVER"
+  | "FRESH_WALLET"
+  | "SINGLE_MARKET";
 
 interface BadgeConfig {
   label: string;
@@ -68,6 +70,22 @@ const BADGE_CONFIGS: Record<BadgeType, BadgeConfig> = {
     bgColor: "bg-indigo-100",
     textColor: "text-indigo-700",
     borderColor: "border-indigo-200",
+  },
+  FRESH_WALLET: {
+    label: "Fresh Wallet",
+    tooltip: "Wallet is less than 7 days old",
+    icon: "✨",
+    bgColor: "bg-cyan-100",
+    textColor: "text-cyan-700",
+    borderColor: "border-cyan-200",
+  },
+  SINGLE_MARKET: {
+    label: "Single Market",
+    tooltip: "Only traded on one market",
+    icon: "🎯",
+    bgColor: "bg-pink-100",
+    textColor: "text-pink-700",
+    borderColor: "border-pink-200",
   },
 };
 

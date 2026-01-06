@@ -2,13 +2,13 @@
  * Insider Detection Job
  *
  * Scans Polymarket trades to identify potential insider trading patterns.
- * Looks for new wallets with minimal trades and suspicious signals.
+ * Looks for new wallets with suspicious signals.
  *
  * Criteria:
  * - New wallet (first trade within configurable timeframe)
- * - Less than 5 trades total
- * - Minimum trade size: >$500
- * - All markets EXCEPT Crypto & Sports
+ * - Less than 20 trades total (configurable)
+ * - Minimum trade size: >$100 (configurable)
+ * - All markets (including sports, crypto - filtering happens in UI)
  */
 
 import prisma from '@/lib/prisma';
@@ -46,6 +46,7 @@ function calculateBadges(
     totalVolume: number;
     winRate: number | null;
     resolvedTrades: number;
+    firstTradeAt: Date;
   },
   trades: Array<{
     id: string;
@@ -56,9 +57,32 @@ function calculateBadges(
     price24hLater: number | null;
     daysToResolution: number | null;
     traderRank: number | null;
+    conditionId: string;
   }>
 ): BadgeCandidate[] {
   const badges: BadgeCandidate[] = [];
+
+  // FRESH_WALLET: Wallet less than 7 days old
+  const walletAge = Math.floor(
+    (Date.now() - wallet.firstTradeAt.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (walletAge <= 7) {
+    badges.push({
+      type: 'FRESH_WALLET',
+      reason: `Wallet is only ${walletAge} day${walletAge === 1 ? '' : 's'} old`,
+      metadata: { walletAgeDays: walletAge },
+    });
+  }
+
+  // SINGLE_MARKET: Only traded on one market
+  const uniqueMarkets = new Set(trades.map((t) => t.conditionId));
+  if (uniqueMarkets.size === 1 && trades.length >= 1) {
+    badges.push({
+      type: 'SINGLE_MARKET',
+      reason: `All ${trades.length} trade${trades.length === 1 ? '' : 's'} on a single market`,
+      metadata: { uniqueMarkets: uniqueMarkets.size, totalTrades: trades.length },
+    });
+  }
 
   // HIGH_WIN_RATE: 80%+ win rate with at least 2 resolved trades
   if (wallet.winRate !== null && wallet.winRate >= 0.8 && wallet.resolvedTrades >= 2) {
@@ -225,6 +249,7 @@ async function awardBadges(walletId: string, result: ScanResult): Promise<void> 
       totalVolume: wallet.totalVolume,
       winRate: wallet.winRate,
       resolvedTrades: wallet.resolvedTrades,
+      firstTradeAt: wallet.firstTradeAt,
     },
     wallet.trades.map((t) => ({
       id: t.id,
@@ -235,6 +260,7 @@ async function awardBadges(walletId: string, result: ScanResult): Promise<void> 
       price24hLater: t.price24hLater,
       daysToResolution: t.daysToResolution,
       traderRank: t.traderRank,
+      conditionId: t.conditionId,
     }))
   );
 
@@ -391,7 +417,7 @@ export async function scanInsiders(options: {
   minTradeSize?: number;
   maxTrades?: number;
 } = {}): Promise<ScanResult> {
-  const { daysBack = 30, minTradeSize = 500, maxTrades = 5 } = options;
+  const { daysBack = 30, minTradeSize = 100, maxTrades = 20 } = options;
 
   const result: ScanResult = {
     walletsScanned: 0,

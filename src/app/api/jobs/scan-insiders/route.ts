@@ -41,8 +41,8 @@ export async function GET(request: NextRequest) {
 
   // Parse options - default to 90 days to support all timeframe filters
   const daysBack = parseInt(request.nextUrl.searchParams.get('daysBack') || '90');
-  const minTradeSize = parseInt(request.nextUrl.searchParams.get('minTradeSize') || '500');
-  const maxTrades = parseInt(request.nextUrl.searchParams.get('maxTrades') || '5');
+  const minTradeSize = parseInt(request.nextUrl.searchParams.get('minTradeSize') || '100');
+  const maxTrades = parseInt(request.nextUrl.searchParams.get('maxTrades') || '20');
 
   const startTime = Date.now();
 

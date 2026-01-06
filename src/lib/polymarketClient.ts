@@ -590,10 +590,13 @@ export async function fetchTradesByWallet(
 /**
  * Process raw trade data into a structured format
  * The trades endpoint already includes market info (title, slug, outcome)
+ *
+ * @param filterExcluded - If true, skip sports/crypto markets. Default false to capture all trades.
  */
 export async function processTradeData(
   rawTrade: PolymarketRawTrade,
-  marketCache: Map<string, PolymarketMarket | null>
+  marketCache: Map<string, PolymarketMarket | null>,
+  filterExcluded: boolean = false
 ): Promise<ProcessedTrade | null> {
   // Classify the market category using data from the trade itself
   const category = classifyMarketCategory(
@@ -602,8 +605,8 @@ export async function processTradeData(
     [] // Tags not available in trade data, but we can classify from title/slug
   );
 
-  // Skip excluded markets (crypto, sports)
-  if (category === null) {
+  // Optionally skip excluded markets (crypto, sports)
+  if (filterExcluded && category === null) {
     return null;
   }
 
@@ -616,7 +619,7 @@ export async function processTradeData(
     conditionId: rawTrade.conditionId,
     marketQuestion: rawTrade.title,
     marketSlug: rawTrade.slug,
-    marketCategory: category,
+    marketCategory: category || 'other', // Use 'other' for sports/crypto if not filtered
     outcomeName: rawTrade.outcome,
     side: rawTrade.side,
     size,
@@ -666,7 +669,7 @@ export async function scanForNewWallets(
     maxTrades?: number;
   } = {}
 ): Promise<Map<string, ProcessedTrade[]>> {
-  const { daysBack = 30, minTradeSize = 500, maxTrades = 5 } = options;
+  const { daysBack = 30, minTradeSize = 100, maxTrades = 20 } = options;
 
   const startTime = new Date();
   startTime.setDate(startTime.getDate() - daysBack);
