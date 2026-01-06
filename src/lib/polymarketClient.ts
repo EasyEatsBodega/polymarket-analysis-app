@@ -70,23 +70,22 @@ const EXCLUDED_KEYWORDS = [
  * Raw trade data from Polymarket API
  */
 export interface PolymarketRawTrade {
-  id: string;
-  taker_order_id: string;
-  market: string;
-  asset_id: string;
+  proxyWallet: string;
   side: 'BUY' | 'SELL';
-  size: string;
-  fee_rate_bps: string;
-  price: string;
-  status: string;
-  match_time: string;
-  last_update: string;
+  asset: string;
+  conditionId: string;
+  size: number;
+  price: number;
+  timestamp: number;
+  title: string;
+  slug: string;
+  icon?: string;
+  eventSlug?: string;
   outcome: string;
-  maker_address: string;
-  trader: string; // The taker address
-  transaction_hash: string;
-  bucket_index: number;
-  type: string;
+  outcomeIndex: number;
+  name?: string;
+  pseudonym?: string;
+  transactionHash: string;
 }
 
 /**
@@ -190,7 +189,7 @@ function createApiClient(): AxiosInstance {
     timeout: 30000,
     headers: {
       'Accept': 'application/json',
-      'User-Agent': 'PredictEasy/1.0',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
   });
 
@@ -301,7 +300,7 @@ export async function fetchRecentTrades(
   };
 
   if (market) params.market = market;
-  if (user) params.maker_address = user;
+  if (user) params.user = user;
 
   try {
     await sleep(RATE_LIMIT_DELAY_MS);
@@ -311,13 +310,13 @@ export async function fetchRecentTrades(
 
     let trades: PolymarketRawTrade[] = response.data || [];
 
-    // Filter by time if specified
+    // Filter by time if specified (timestamp is unix seconds)
     if (startTime || endTime) {
+      const startUnix = startTime ? Math.floor(startTime.getTime() / 1000) : 0;
+      const endUnix = endTime ? Math.floor(endTime.getTime() / 1000) : Infinity;
+
       trades = trades.filter((trade) => {
-        const tradeTime = new Date(trade.match_time);
-        if (startTime && tradeTime < startTime) return false;
-        if (endTime && tradeTime > endTime) return false;
-        return true;
+        return trade.timestamp >= startUnix && trade.timestamp <= endUnix;
       });
     }
 
@@ -362,53 +361,43 @@ export async function fetchTradesByWallet(
 
 /**
  * Process raw trade data into a structured format
+ * The trades endpoint already includes market info (title, slug, outcome)
  */
 export async function processTradeData(
   rawTrade: PolymarketRawTrade,
   marketCache: Map<string, PolymarketMarket | null>
 ): Promise<ProcessedTrade | null> {
-  // Get market data (with caching)
-  let market = marketCache.get(rawTrade.market);
-  if (market === undefined) {
-    market = await fetchMarket(rawTrade.market);
-    marketCache.set(rawTrade.market, market);
-  }
-
-  if (!market) {
-    return null;
-  }
-
-  // Classify the market category
+  // Classify the market category using data from the trade itself
   const category = classifyMarketCategory(
-    market.question,
-    market.slug,
-    market.tags || []
+    rawTrade.title,
+    rawTrade.slug,
+    [] // Tags not available in trade data, but we can classify from title/slug
   );
 
-  // Skip excluded markets
+  // Skip excluded markets (crypto, sports)
   if (category === null) {
     return null;
   }
 
-  const size = parseFloat(rawTrade.size);
-  const price = parseFloat(rawTrade.price);
+  const size = rawTrade.size;
+  const price = rawTrade.price;
 
   return {
-    id: rawTrade.id,
-    walletAddress: rawTrade.trader,
-    conditionId: rawTrade.market,
-    marketQuestion: market.question,
-    marketSlug: market.slug,
+    id: rawTrade.transactionHash, // Use transaction hash as ID
+    walletAddress: rawTrade.proxyWallet,
+    conditionId: rawTrade.conditionId,
+    marketQuestion: rawTrade.title,
+    marketSlug: rawTrade.slug,
     marketCategory: category,
     outcomeName: rawTrade.outcome,
     side: rawTrade.side,
     size,
     price,
     usdValue: size * price,
-    timestamp: new Date(rawTrade.match_time),
-    transactionHash: rawTrade.transaction_hash,
-    marketResolved: market.resolved,
-    marketEndDate: market.end_date_iso ? new Date(market.end_date_iso) : null,
+    timestamp: new Date(rawTrade.timestamp * 1000), // Unix timestamp to Date
+    transactionHash: rawTrade.transactionHash,
+    marketResolved: false, // Not available in trade data, will be checked separately
+    marketEndDate: null,
   };
 }
 
@@ -482,8 +471,8 @@ export async function scanForNewWallets(
 
     for (const rawTrade of rawTrades) {
       // Skip if we've already processed this transaction
-      if (seenTransactions.has(rawTrade.transaction_hash)) continue;
-      seenTransactions.add(rawTrade.transaction_hash);
+      if (seenTransactions.has(rawTrade.transactionHash)) continue;
+      seenTransactions.add(rawTrade.transactionHash);
 
       const processed = await processTradeData(rawTrade, marketCache);
       if (!processed) continue;
