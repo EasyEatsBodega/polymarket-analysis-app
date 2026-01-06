@@ -1,5 +1,7 @@
 "use client";
 
+import { MomentumBreakdownInline, MomentumBreakdownData } from "./MomentumBreakdown";
+
 import { useState, useEffect } from "react";
 
 interface Mover {
@@ -11,6 +13,7 @@ interface Mover {
   rankChange: number | null;
   views: number | null;
   momentumScore: number;
+  momentumBreakdown: MomentumBreakdownData | null;
   forecastP10: number | null;
   forecastP50: number | null;
   forecastP90: number | null;
@@ -111,7 +114,13 @@ function RankChange({ change }: { change: number | null }) {
   return <span className="text-gray-500">-</span>;
 }
 
-function MomentumBadge({ score }: { score: number }) {
+function MomentumBadge({ score, breakdown }: { score: number; breakdown: MomentumBreakdownData | null }) {
+  // If we have breakdown data, use the inline component
+  if (breakdown) {
+    return <MomentumBreakdownInline breakdown={breakdown} />;
+  }
+
+  // Fallback to simple badge
   let colorClass = "bg-gray-100 text-gray-700";
   if (score >= 70) colorClass = "bg-green-100 text-green-800";
   else if (score >= 50) colorClass = "bg-yellow-100 text-yellow-800";
@@ -283,7 +292,7 @@ export default function MoversTable({ type, geo = "GLOBAL", language, limit = 10
                 </td>
               )}
               <td className="px-6 py-4 whitespace-nowrap">
-                <MomentumBadge score={mover.momentumScore} />
+                <MomentumBadge score={mover.momentumScore} breakdown={mover.momentumBreakdown} />
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <ForecastBand

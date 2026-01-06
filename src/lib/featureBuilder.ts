@@ -40,6 +40,7 @@ export interface TitleFeatures {
   // Computed scores
   momentumScore: number;
   accelerationScore: number;
+  momentumBreakdown: MomentumBreakdown | null;
 }
 
 export interface MomentumWeights {
@@ -124,6 +125,94 @@ function normalizeToScale(value: number, min: number, max: number): number {
 }
 
 /**
+ * Momentum component breakdown for transparency
+ */
+export interface MomentumBreakdown {
+  // Raw values
+  trendsRaw: number | null;
+  wikipediaRaw: number | null;
+  rankDeltaRaw: number | null;
+
+  // Normalized values (0-100 scale)
+  trendsNormalized: number | null;
+  wikipediaNormalized: number | null;
+  rankDeltaNormalized: number | null;
+
+  // Weights used
+  weights: MomentumWeights;
+
+  // Weighted contributions to final score
+  trendsContribution: number;
+  wikipediaContribution: number;
+  rankDeltaContribution: number;
+
+  // Final score
+  totalScore: number;
+}
+
+/**
+ * Calculate momentum score with full component breakdown
+ */
+export function calculateMomentumWithBreakdown(
+  trendsValue: number | null,
+  wikipediaValue: number | null,
+  rankDelta: number | null,
+  weights: MomentumWeights
+): { score: number; breakdown: MomentumBreakdown } {
+  let score = 0;
+  let totalWeight = 0;
+
+  // Initialize breakdown
+  const breakdown: MomentumBreakdown = {
+    trendsRaw: trendsValue,
+    wikipediaRaw: wikipediaValue,
+    rankDeltaRaw: rankDelta,
+    trendsNormalized: null,
+    wikipediaNormalized: null,
+    rankDeltaNormalized: null,
+    weights,
+    trendsContribution: 0,
+    wikipediaContribution: 0,
+    rankDeltaContribution: 0,
+    totalScore: 0,
+  };
+
+  // Google Trends component (already 0-100 scale)
+  if (trendsValue !== null) {
+    breakdown.trendsNormalized = Math.round(trendsValue);
+    breakdown.trendsContribution = trendsValue * weights.trendsWeight;
+    score += breakdown.trendsContribution;
+    totalWeight += weights.trendsWeight;
+  }
+
+  // Wikipedia component (normalize using log scale for views)
+  if (wikipediaValue !== null && wikipediaValue > 0) {
+    // Log normalize: 1000 views = ~30, 10000 = ~40, 100000 = ~50, 1M = ~60
+    const logNormalized = Math.min(100, Math.log10(wikipediaValue) * 10);
+    breakdown.wikipediaNormalized = Math.round(logNormalized);
+    breakdown.wikipediaContribution = logNormalized * weights.wikipediaWeight;
+    score += breakdown.wikipediaContribution;
+    totalWeight += weights.wikipediaWeight;
+  }
+
+  // Rank delta component (climbing ranks is positive momentum)
+  if (rankDelta !== null) {
+    // Normalize: -10 (dropping fast) to +10 (climbing fast) -> 0-100
+    const normalizedDelta = normalizeToScale(rankDelta, -10, 10);
+    breakdown.rankDeltaNormalized = Math.round(normalizedDelta);
+    breakdown.rankDeltaContribution = normalizedDelta * weights.rankDeltaWeight;
+    score += breakdown.rankDeltaContribution;
+    totalWeight += weights.rankDeltaWeight;
+  }
+
+  // Normalize by actual weight used
+  const finalScore = totalWeight === 0 ? 0 : Math.round(score / totalWeight);
+  breakdown.totalScore = finalScore;
+
+  return { score: finalScore, breakdown };
+}
+
+/**
  * Calculate momentum score from component signals
  */
 export function calculateMomentumScore(
@@ -132,36 +221,8 @@ export function calculateMomentumScore(
   rankDelta: number | null,
   weights: MomentumWeights
 ): number {
-  let score = 0;
-  let totalWeight = 0;
-
-  // Google Trends component (already 0-100 scale)
-  if (trendsValue !== null) {
-    score += trendsValue * weights.trendsWeight;
-    totalWeight += weights.trendsWeight;
-  }
-
-  // Wikipedia component (normalize using log scale for views)
-  if (wikipediaValue !== null && wikipediaValue > 0) {
-    // Log normalize: 1000 views = ~30, 10000 = ~40, 100000 = ~50, 1M = ~60
-    const logNormalized = Math.min(100, Math.log10(wikipediaValue) * 10);
-    score += logNormalized * weights.wikipediaWeight;
-    totalWeight += weights.wikipediaWeight;
-  }
-
-  // Rank delta component (climbing ranks is positive momentum)
-  if (rankDelta !== null) {
-    // Normalize: -10 (dropping fast) to +10 (climbing fast) -> 0-100
-    const normalizedDelta = normalizeToScale(rankDelta, -10, 10);
-    score += normalizedDelta * weights.rankDeltaWeight;
-    totalWeight += weights.rankDeltaWeight;
-  }
-
-  // If no components available, return 0
-  if (totalWeight === 0) return 0;
-
-  // Normalize by actual weight used
-  return Math.round(score / totalWeight);
+  const { score } = calculateMomentumWithBreakdown(trendsValue, wikipediaValue, rankDelta, weights);
+  return score;
 }
 
 /**
@@ -269,8 +330,8 @@ export async function buildTitleFeatures(
   // Use global rank delta for momentum, or US if global not available
   const primaryRankDelta = globalRankDelta ?? usRankDelta;
 
-  // Calculate momentum score
-  const momentumScore = calculateMomentumScore(
+  // Calculate momentum score with breakdown
+  const { score: momentumScore, breakdown: momentumBreakdown } = calculateMomentumWithBreakdown(
     trendsGlobal ?? trendsUS,
     wikipediaViews,
     primaryRankDelta,
@@ -300,6 +361,7 @@ export async function buildTitleFeatures(
     wikipediaDelta,
     momentumScore,
     accelerationScore,
+    momentumBreakdown,
   };
 }
 

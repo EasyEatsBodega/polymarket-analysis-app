@@ -10,7 +10,7 @@
 import { ForecastTarget } from '@prisma/client';
 import { SimpleLinearRegression } from 'ml-regression-simple-linear';
 import { standardDeviation } from 'simple-statistics';
-import { TitleFeatures, buildTitleFeatures, getMomentumWeights } from './featureBuilder';
+import { TitleFeatures, buildTitleFeatures, getMomentumWeights, MomentumBreakdown } from './featureBuilder';
 
 import prisma from '@/lib/prisma';
 
@@ -36,6 +36,7 @@ export interface ForecastExplanation {
   rankTrendContribution: number | null;
   historicalPattern: string;
   confidence: 'low' | 'medium' | 'high';
+  momentumBreakdown: MomentumBreakdown | null;
 }
 
 interface HistoricalDataPoint {
@@ -249,6 +250,7 @@ export async function generateForecast(
       rankTrendContribution: momentumContribution,
       historicalPattern: trend.pattern,
       confidence,
+      momentumBreakdown: features?.momentumBreakdown ?? null,
     },
   };
 }
@@ -335,6 +337,7 @@ export async function generateViewsForecast(
       rankTrendContribution: null,
       historicalPattern: pattern,
       confidence,
+      momentumBreakdown: features?.momentumBreakdown ?? null,
     },
   };
 }
@@ -446,6 +449,7 @@ export async function generatePreReleaseForecast(
       rankTrendContribution: null,
       historicalPattern: 'pre_release',
       confidence,
+      momentumBreakdown: null,
     },
   };
 }

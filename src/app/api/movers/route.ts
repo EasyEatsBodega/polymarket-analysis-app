@@ -11,6 +11,24 @@ import prisma from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 
+export interface MomentumBreakdown {
+  trendsRaw: number | null;
+  wikipediaRaw: number | null;
+  rankDeltaRaw: number | null;
+  trendsNormalized: number | null;
+  wikipediaNormalized: number | null;
+  rankDeltaNormalized: number | null;
+  weights: {
+    trendsWeight: number;
+    wikipediaWeight: number;
+    rankDeltaWeight: number;
+  };
+  trendsContribution: number;
+  wikipediaContribution: number;
+  rankDeltaContribution: number;
+  totalScore: number;
+}
+
 export interface MoverResponse {
   id: string;
   title: string;
@@ -20,6 +38,7 @@ export interface MoverResponse {
   rankChange: number | null;
   views: number | null;
   momentumScore: number;
+  momentumBreakdown: MomentumBreakdown | null;
   forecastP10: number | null;
   forecastP50: number | null;
   forecastP90: number | null;
@@ -118,19 +137,27 @@ export async function GET(request: NextRequest) {
         select: { id: true, canonicalName: true, type: true },
         cacheStrategy: { ttl: 300 },
       }),
+      // Get most recent forecasts for each title (ordered by weekStart desc)
+      // Forecasts are generated for future weeks but contain current momentum data
       prisma.forecastWeekly.findMany({
         where: {
           titleId: { in: titleIds },
-          weekStart,
           target: geo === 'US' ? 'RANK' : 'VIEWERSHIP',
         },
-        select: { titleId: true, p10: true, p50: true, p90: true, explainJson: true },
+        select: { titleId: true, p10: true, p50: true, p90: true, explainJson: true, weekStart: true },
+        orderBy: { weekStart: 'desc' },
         cacheStrategy: { ttl: 300 },
       }),
     ]);
 
     const titleMap = new Map(titles.map((t: { id: string; canonicalName: string; type: TitleType }) => [t.id, t]));
-    const forecastMap = new Map(forecasts.map((f: { titleId: string; p10: number | null; p50: number | null; p90: number | null; explainJson: unknown }) => [f.titleId, f]));
+    // Build forecast map, keeping only the most recent forecast per title (first one since ordered by weekStart desc)
+    const forecastMap = new Map<string, { titleId: string; p10: number | null; p50: number | null; p90: number | null; explainJson: unknown }>();
+    for (const f of forecasts) {
+      if (!forecastMap.has(f.titleId)) {
+        forecastMap.set(f.titleId, f);
+      }
+    }
 
     // Combine data
     const currentData = currentWeekData.map((d) => ({
@@ -172,7 +199,7 @@ export async function GET(request: NextRequest) {
 
         // Get forecast data from the separate fetch
         const forecast = current.forecast;
-        const explainJson = forecast?.explainJson as { momentumScore?: number } | null;
+        const explainJson = forecast?.explainJson as { momentumScore?: number; momentumBreakdown?: MomentumBreakdown } | null;
 
         // Calculate momentum score from forecast or estimate from rank change
         const momentumScore = explainJson?.momentumScore ?? (rankChange ? 50 + rankChange * 5 : 50);
@@ -186,6 +213,7 @@ export async function GET(request: NextRequest) {
           rankChange,
           views: 'views' in current && current.views ? Number(current.views) : null,
           momentumScore,
+          momentumBreakdown: explainJson?.momentumBreakdown ?? null,
           forecastP10: forecast?.p10 ?? null,
           forecastP50: forecast?.p50 ?? null,
           forecastP90: forecast?.p90 ?? null,
