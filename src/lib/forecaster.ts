@@ -71,7 +71,8 @@ async function getHistoricalData(
       views: d.views ? Number(d.views) : null,
     }));
   } else {
-    const data = await prisma.netflixWeeklyUS.findMany({
+    // Try US data first
+    const usData = await prisma.netflixWeeklyUS.findMany({
       where: {
         titleId,
         weekStart: { gte: cutoff },
@@ -80,7 +81,25 @@ async function getHistoricalData(
       select: { weekStart: true, rank: true },
     });
 
-    return data.map((d) => ({
+    if (usData.length > 0) {
+      return usData.map((d) => ({
+        weekStart: d.weekStart,
+        rank: d.rank,
+        views: null,
+      }));
+    }
+
+    // Fall back to global data for RANK forecasts
+    const globalData = await prisma.netflixWeeklyGlobal.findMany({
+      where: {
+        titleId,
+        weekStart: { gte: cutoff },
+      },
+      orderBy: { weekStart: 'asc' },
+      select: { weekStart: true, rank: true },
+    });
+
+    return globalData.map((d) => ({
       weekStart: d.weekStart,
       rank: d.rank,
       views: null,
@@ -323,6 +342,7 @@ export async function generateViewsForecast(
 /**
  * Generate pre-release forecast for titles without Netflix history
  * Uses signal data (Google Trends, Wikipedia) to estimate potential ranking
+ * Falls back to neutral defaults if no signals available
  */
 export async function generatePreReleaseForecast(
   titleId: string,
@@ -340,10 +360,6 @@ export async function generatePreReleaseForecast(
     orderBy: { date: 'desc' },
   });
 
-  if (signals.length === 0) {
-    return null; // No signal data available
-  }
-
   // Calculate average signal values
   const trendsSignals = signals.filter(s => s.source === 'TRENDS');
   const wikiSignals = signals.filter(s => s.source === 'WIKIPEDIA');
@@ -359,6 +375,7 @@ export async function generatePreReleaseForecast(
   // Calculate momentum score from signals (no rank data)
   const weights = await getMomentumWeights();
   let momentumScore = 50; // Default neutral
+  let confidence: 'low' | 'medium' | 'high' = 'low'; // Default to low if no signals
 
   if (avgTrends !== null || avgWiki !== null) {
     let score = 0;
@@ -379,6 +396,7 @@ export async function generatePreReleaseForecast(
 
     if (totalWeight > 0) {
       momentumScore = Math.round(score / totalWeight);
+      confidence = 'medium'; // Medium confidence if we have signals
     }
   }
 
@@ -401,7 +419,8 @@ export async function generatePreReleaseForecast(
   }
 
   // Calculate uncertainty - higher for pre-release (less data)
-  const uncertainty = 2.5; // Higher uncertainty than established titles
+  // Even higher if no signals available
+  const uncertainty = signals.length > 0 ? 2.5 : 3.5;
 
   // Generate percentile forecasts
   const p50 = predictedRank;
@@ -426,7 +445,7 @@ export async function generatePreReleaseForecast(
       wikipediaContribution: avgWiki,
       rankTrendContribution: null,
       historicalPattern: 'pre_release',
-      confidence: 'medium', // Always medium for pre-release
+      confidence,
     },
   };
 }
