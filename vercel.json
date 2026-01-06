@@ -68,6 +68,10 @@
     {
       "path": "/api/jobs/ingest-flixpatrol",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/jobs/discover-releases",
+      "schedule": "0 6 * * *"
     }
   ]
 }
