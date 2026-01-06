@@ -27,6 +27,12 @@ export default function Header() {
             >
               Netflix
             </Link>
+            <Link
+              href="/insider-finder"
+              className="text-dust-grey hover:text-white transition-colors"
+            >
+              Insider Finder
+            </Link>
             <SignedIn>
               <Link
                 href="/admin"
