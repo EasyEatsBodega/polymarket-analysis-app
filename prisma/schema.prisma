@@ -266,3 +266,91 @@ model JobRun {
 
   @@index([jobName, startedAt])
 }
+
+// =============================================================================
+// INSIDER FINDER MODELS
+// =============================================================================
+
+enum InsiderBadgeType {
+  HIGH_WIN_RATE   // 80%+ win rate
+  BIG_BET         // Trade >50% of their total volume
+  LONG_SHOT       // Bought at <25%, was correct
+  PRE_MOVE        // Price moved 20%+ within 24h of trade
+  LATE_WINNER     // Correct bet within 7 days of resolution
+  FIRST_MOVER     // Among first 10 traders on market
+}
+
+model InsiderWallet {
+  id              String   @id @default(cuid())
+  address         String   @unique
+  proxyWallet     String?  // Polymarket proxy wallet if different
+  firstTradeAt    DateTime
+  lastTradeAt     DateTime
+  totalTrades     Int      @default(0)
+  totalVolume     Float    @default(0)
+  winRate         Float?
+  resolvedTrades  Int      @default(0)
+  wonTrades       Int      @default(0)
+  isTracked       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trades          InsiderTrade[]
+  badges          InsiderBadge[]
+
+  @@index([firstTradeAt])
+  @@index([totalTrades])
+  @@index([isTracked])
+}
+
+model InsiderTrade {
+  id              String   @id @default(cuid())
+  walletId        String
+  wallet          InsiderWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  conditionId     String   // Polymarket market condition ID
+  marketQuestion  String   // Cached market question
+  marketSlug      String?  // Market slug for linking
+  marketCategory  String?  // Market category for filtering
+  outcomeName     String   // e.g., "Yes", "No", or specific outcome
+  side            String   // BUY or SELL
+  size            Float    // Number of shares
+  price           Float    // Entry price (0-1)
+  usdValue        Float    // Total USD value
+  timestamp       DateTime
+  transactionHash String?
+
+  // Resolution data (filled when market resolves)
+  resolved        Boolean  @default(false)
+  resolvedAt      DateTime?
+  won             Boolean?
+  pnl             Float?
+
+  // Badge qualification data
+  priceAtTrade    Float?   // Market price when trade was made
+  price24hLater   Float?   // Price 24h after trade
+  daysToResolution Int?    // Days between trade and resolution
+  traderRank      Int?     // Position among market traders (1 = first)
+
+  createdAt       DateTime @default(now())
+
+  @@unique([walletId, conditionId, transactionHash])
+  @@index([walletId, timestamp])
+  @@index([conditionId])
+  @@index([marketCategory])
+  @@index([timestamp])
+}
+
+model InsiderBadge {
+  id          String           @id @default(cuid())
+  walletId    String
+  wallet      InsiderWallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  tradeId     String?          // Optional: specific trade that earned badge
+  badgeType   InsiderBadgeType
+  reason      String           // Human-readable reason
+  metadata    Json?            // Additional context
+  earnedAt    DateTime         @default(now())
+
+  @@unique([walletId, tradeId, badgeType])
+  @@index([walletId])
+  @@index([badgeType])
+}

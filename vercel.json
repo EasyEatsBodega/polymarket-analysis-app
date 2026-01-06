@@ -60,6 +60,10 @@
     {
       "path": "/api/jobs/snapshot-prices",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/jobs/scan-insiders",
+      "schedule": "0 */6 * * *"
     }
   ]
 }
