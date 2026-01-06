@@ -64,6 +64,10 @@
     {
       "path": "/api/jobs/scan-insiders",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/jobs/ingest-flixpatrol",
+      "schedule": "0 8 * * *"
     }
   ]
 }

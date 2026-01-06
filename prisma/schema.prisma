@@ -69,6 +69,7 @@ model Title {
   releaseCandidates  ReleaseCandidate[]
   pinnedTitle        PinnedTitle?
   pacingMetrics      PacingMetricDaily[]
+  flixPatrolDaily    FlixPatrolDaily[]
 
   @@unique([canonicalName, type])
 }
@@ -102,6 +103,26 @@ model NetflixWeeklyUS {
 
   @@unique([titleId, weekStart, category])
   @@index([weekStart])
+}
+
+model FlixPatrolDaily {
+  id          String    @id @default(cuid())
+  titleId     String?   // Nullable - may not match existing title
+  title       Title?    @relation(fields: [titleId], references: [id])
+  date        DateTime
+  platform    String    @default("netflix")
+  region      String    @default("world")
+  category    String    // "tv" or "movies"
+  rank        Int
+  points      Int       // FlixPatrol points score
+  titleName   String    // Raw title name from FlixPatrol
+  titleSlug   String    // FlixPatrol URL slug (e.g., "stranger-things")
+  createdAt   DateTime  @default(now())
+
+  @@unique([date, platform, region, category, rank])
+  @@index([date])
+  @@index([titleSlug])
+  @@index([titleId])
 }
 
 model DailySignal {
