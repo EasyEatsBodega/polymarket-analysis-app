@@ -63,6 +63,7 @@ interface InsiderFinderListResponse {
       badges: string[];
       categories: string[];
       minSize: number | null;
+      side: string;
       maxSize: number | null;
     };
   };
@@ -77,6 +78,8 @@ const VALID_BADGE_TYPES: InsiderBadgeType[] = [
   'PRE_MOVE',
   'LATE_WINNER',
   'FIRST_MOVER',
+  'FRESH_WALLET',
+  'SINGLE_MARKET',
 ];
 
 export async function GET(
@@ -97,6 +100,7 @@ export async function GET(
       : null;
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '25')));
+    const side = searchParams.get('side') || 'all';
     const sort = searchParams.get('sort') || 'firstTradeAt';
     const order = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
@@ -141,6 +145,7 @@ export async function GET(
       };
     }
 
+// Filter by side (buy/sell)    if (side !== "all") {      if (where.trades) {        // Merge with existing trades filter        where.trades = {          some: {            ...((where.trades as any).some || {}),            side: side.toUpperCase(),          },        };      } else {        where.trades = {          some: {            side: side.toUpperCase(),          },        };      }    }
     // Filter by volume range
     if (minSize !== null || maxSize !== null) {
       where.totalVolume = {};
@@ -227,6 +232,7 @@ export async function GET(
           badges,
           categories,
           minSize,
+          side,
           maxSize,
         },
       },
@@ -247,6 +253,7 @@ export async function GET(
             badges: [],
             categories: [],
             minSize: null,
+            side: "all",
             maxSize: null,
           },
         },

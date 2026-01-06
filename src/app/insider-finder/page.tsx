@@ -69,6 +69,7 @@ export default function InsiderFinderPage() {
     timeframe: 30,
     badges: [],
     categories: [],
+    side: "all",
     minSize: null,
     maxSize: null,
   });
@@ -96,6 +97,9 @@ export default function InsiderFinderPage() {
       }
       if (filters.maxSize !== null) {
         params.set("maxSize", filters.maxSize.toString());
+      }
+      if (filters.side !== "all") {
+        params.set("side", filters.side);
       }
 
       const res = await fetch(`/api/insider-finder?${params}`);

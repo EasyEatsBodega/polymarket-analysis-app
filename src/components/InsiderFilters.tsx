@@ -7,6 +7,7 @@ export interface InsiderFiltersState {
   timeframe: number;
   badges: BadgeType[];
   categories: string[];
+  side: "all" | "buy" | "sell";
   minSize: number | null;
   maxSize: number | null;
 }
@@ -31,6 +32,14 @@ const BADGE_OPTIONS: { value: BadgeType; label: string }[] = [
   { value: "PRE_MOVE", label: "Pre-Move" },
   { value: "LATE_WINNER", label: "Late Winner" },
   { value: "FIRST_MOVER", label: "First Mover" },
+  { value: "FRESH_WALLET", label: "Fresh Wallet" },
+  { value: "SINGLE_MARKET", label: "Single Market" },
+];
+
+const SIDE_OPTIONS = [
+  { value: "all" as const, label: "All" },
+  { value: "buy" as const, label: "Buys" },
+  { value: "sell" as const, label: "Sells" },
 ];
 
 const DEFAULT_CATEGORIES = [
@@ -53,6 +62,10 @@ export default function InsiderFilters({
 
   const handleTimeframeChange = (value: number) => {
     onFiltersChange({ ...filters, timeframe: value });
+  };
+
+  const handleSideChange = (value: "all" | "buy" | "sell") => {
+    onFiltersChange({ ...filters, side: value });
   };
 
   const handleBadgeToggle = (badge: BadgeType) => {
@@ -83,6 +96,7 @@ export default function InsiderFilters({
     onFiltersChange({
       timeframe: 30,
       badges: [],
+      side: "all",
       categories: [],
       minSize: null,
       maxSize: null,
@@ -92,6 +106,7 @@ export default function InsiderFilters({
   const activeFilterCount =
     filters.badges.length +
     filters.categories.length +
+    (filters.side !== "all" ? 1 : 0) +
     (filters.minSize !== null ? 1 : 0) +
     (filters.maxSize !== null ? 1 : 0);
 
@@ -120,6 +135,7 @@ export default function InsiderFilters({
             </div>
           </div>
 
+{/* Side Selector */}          <div className="flex items-center gap-2">            <span className="text-sm text-gray-500">Side:</span>            <div className="flex rounded-lg border border-dust-grey overflow-hidden">              {SIDE_OPTIONS.map((option) => (                <button                  key={option.value}                  onClick={() => handleSideChange(option.value)}                  className={`px-3 py-1.5 text-sm transition-colors ${                    filters.side === option.value                      ? "bg-pine-blue text-white"                      : "bg-white text-gray-600 hover:bg-gray-50"                  }`}                >                  {option.label}                </button>              ))}            </div>          </div>
           {/* Active Filter Count */}
           {activeFilterCount > 0 && (
             <span className="px-2 py-0.5 bg-pine-blue text-white text-xs rounded-full">
