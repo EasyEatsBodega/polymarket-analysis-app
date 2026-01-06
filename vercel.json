@@ -15,7 +15,7 @@
     },
     {
       "path": "/api/jobs/generate-forecasts",
-      "schedule": "30 9 * * *"
+      "schedule": "0 */4 * * *"
     },
     {
       "path": "/api/jobs/sync-polymarket",

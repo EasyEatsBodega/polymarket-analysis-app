@@ -19,7 +19,11 @@ interface EdgeOpportunity {
   momentumScore: number;
   accelerationScore: number;
   forecastP50: number | null;
+  forecastP10: number | null;
+  forecastP90: number | null;
   confidence: 'low' | 'medium' | 'high';
+  historicalPattern: string;
+  reasoning: string;
   priceChange24h: number | null;
 }
 
@@ -90,6 +94,13 @@ function EdgeBar({ marketProb, modelProb }: { marketProb: number; modelProb: num
 function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
   const isPositive = edge.edge > 0;
 
+  // Format forecast range
+  const forecastRange = edge.forecastP10 !== null && edge.forecastP90 !== null
+    ? `#${edge.forecastP10}-${edge.forecastP90}`
+    : edge.forecastP50 !== null
+      ? `#${edge.forecastP50}`
+      : '-';
+
   return (
     <a
       href={edge.polymarketUrl}
@@ -107,8 +118,14 @@ function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
       </div>
 
       {/* Edge Visualization */}
-      <div className="mb-4">
+      <div className="mb-3">
         <EdgeBar marketProb={edge.marketProbability} modelProb={edge.modelProbability} />
+      </div>
+
+      {/* Reasoning */}
+      <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+        <span className="font-medium text-gunmetal">Why: </span>
+        {edge.reasoning}
       </div>
 
       {/* Edge Display */}
@@ -130,22 +147,23 @@ function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
       {/* Supporting Metrics */}
       <div className="grid grid-cols-3 gap-2 text-xs border-t border-dust-grey pt-3">
         <div className="text-center">
-          <span className="block text-gray-400">Momentum</span>
-          <span className="font-semibold text-gunmetal">{edge.momentumScore}</span>
-        </div>
-        <div className="text-center">
           <span className="block text-gray-400">Forecast</span>
-          <span className="font-semibold text-gunmetal">
-            #{edge.forecastP50 ?? '-'}
-          </span>
+          <span className="font-semibold text-gunmetal">{forecastRange}</span>
         </div>
         <div className="text-center">
-          <span className="block text-gray-400">Confidence</span>
-          <span className={`font-semibold capitalize ${
-            edge.confidence === 'high' ? 'text-green-600' :
-            edge.confidence === 'medium' ? 'text-yellow-600' : 'text-gray-400'
+          <span className="block text-gray-400">Momentum</span>
+          <span className={`font-semibold ${
+            edge.momentumScore >= 70 ? 'text-green-600' :
+            edge.momentumScore >= 50 ? 'text-yellow-600' : 'text-red-500'
+          }`}>{edge.momentumScore}</span>
+        </div>
+        <div className="text-center">
+          <span className="block text-gray-400">Trend</span>
+          <span className={`font-semibold ${
+            edge.accelerationScore > 0 ? 'text-green-600' :
+            edge.accelerationScore < 0 ? 'text-red-500' : 'text-gray-500'
           }`}>
-            {edge.confidence}
+            {edge.accelerationScore > 0 ? '↑' : edge.accelerationScore < 0 ? '↓' : '→'}
           </span>
         </div>
       </div>
@@ -186,9 +204,12 @@ function LoadingState() {
 function EmptyState() {
   return (
     <div className="bg-gray-50 rounded-lg p-6 text-center border border-dust-grey">
-      <p className="text-gray-500">No significant edge opportunities found.</p>
+      <p className="text-gray-500">No edge opportunities with forecast data.</p>
       <p className="text-sm text-gray-400 mt-1">
-        Edges are flagged when our model disagrees with market odds by 10%+.
+        We only show edges for titles where we have actual forecast data.
+      </p>
+      <p className="text-sm text-gray-400 mt-1">
+        Forecasts are generated from Netflix rankings + Google Trends + Wikipedia data.
       </p>
     </div>
   );

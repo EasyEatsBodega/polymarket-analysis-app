@@ -10,6 +10,7 @@ import prisma from '@/lib/prisma';
 import {
   calculateModelProbability,
   calculateEdge,
+  generateReasoning,
   EdgeOpportunity,
 } from '@/lib/edgeCalculator';
 import { matchOutcomeToTitle, buildTitleCache } from '@/lib/marketMatcher';
@@ -128,17 +129,25 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
           ? forecastMap.get(match.matchedTitleId)
           : null;
 
+        // IMPORTANT: Only show edges when we have actual forecast data
+        // Without real data, we can't make meaningful predictions
+        if (!forecast) {
+          continue; // Skip titles without forecast data
+        }
+
         // Extract momentum data from forecast explanation
-        const explainJson = forecast?.explainJson as {
+        const explainJson = forecast.explainJson as {
           momentumScore?: number;
           accelerationScore?: number;
           confidence?: string;
+          historicalPattern?: string;
         } | null;
 
-        // Use defaults if no forecast data available
+        // Use actual forecast data
         const momentumScore = explainJson?.momentumScore ?? 50;
         const accelerationScore = explainJson?.accelerationScore ?? 0;
-        const confidence = (explainJson?.confidence as 'low' | 'medium' | 'high') ?? 'medium';
+        const confidence = (explainJson?.confidence as 'low' | 'medium' | 'high') ?? 'low';
+        const historicalPattern = explainJson?.historicalPattern ?? 'unknown';
 
         // Calculate model probability
         const modelResult = calculateModelProbability(
@@ -150,6 +159,19 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
 
         // Calculate edge
         const edgeResult = calculateEdge(outcome.probability, modelResult.probability);
+
+        // Generate reasoning for why this is mispriced
+        const reasoning = generateReasoning({
+          direction: edgeResult.direction,
+          edgePercent: edgeResult.edgePercent,
+          momentumScore,
+          accelerationScore,
+          forecastP50: forecast.p50,
+          forecastP10: forecast.p10,
+          forecastP90: forecast.p90,
+          historicalPattern,
+          marketProbability: outcome.probability,
+        });
 
         // Create edge opportunity
         const edgeOpportunity: EdgeOpportunity = {
@@ -168,8 +190,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
           direction: edgeResult.direction,
           momentumScore,
           accelerationScore,
-          forecastP50: forecast?.p50 ?? null,
+          forecastP50: forecast.p50,
+          forecastP10: forecast.p10,
+          forecastP90: forecast.p90,
           confidence,
+          historicalPattern,
+          reasoning,
           priceChange24h: null, // Will be populated from price history later
         };
 

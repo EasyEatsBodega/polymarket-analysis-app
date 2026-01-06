@@ -42,7 +42,13 @@ export interface EdgeOpportunity {
   momentumScore: number;
   accelerationScore: number;
   forecastP50: number | null;
+  forecastP10: number | null;
+  forecastP90: number | null;
   confidence: 'low' | 'medium' | 'high';
+  historicalPattern: string;
+
+  // Reasoning - why we think this is mispriced
+  reasoning: string;
 
   // Price history for trend
   priceChange24h: number | null;
@@ -230,4 +236,90 @@ export function calculatePriceChange24h(
   const change = (currentPrice.probability - oldPrice.probability) * 100;
 
   return Math.round(change * 10) / 10;
+}
+
+/**
+ * Generate human-readable reasoning for why we think this is mispriced
+ */
+export function generateReasoning(params: {
+  direction: 'BUY' | 'AVOID';
+  edgePercent: number;
+  momentumScore: number;
+  accelerationScore: number;
+  forecastP50: number | null;
+  forecastP10: number | null;
+  forecastP90: number | null;
+  historicalPattern: string;
+  marketProbability: number;
+}): string {
+  const {
+    direction,
+    momentumScore,
+    accelerationScore,
+    forecastP50,
+    forecastP10,
+    forecastP90,
+    historicalPattern,
+    marketProbability,
+  } = params;
+
+  const reasons: string[] = [];
+
+  if (direction === 'BUY') {
+    // Underpriced - we think it's better than market suggests
+    if (forecastP50 !== null && forecastP50 <= 2) {
+      reasons.push(`Model forecasts #${forecastP50} rank`);
+    }
+    if (momentumScore >= 70) {
+      reasons.push(`High momentum (${momentumScore})`);
+    } else if (momentumScore >= 55) {
+      reasons.push(`Good momentum (${momentumScore})`);
+    }
+    if (accelerationScore > 10) {
+      reasons.push('Trending up');
+    }
+    if (historicalPattern === 'climbing_fast') {
+      reasons.push('Climbing fast in charts');
+    } else if (historicalPattern === 'climbing_slow') {
+      reasons.push('Steadily climbing');
+    }
+    if (forecastP90 !== null && forecastP90 <= 3) {
+      reasons.push(`Even worst case is top ${forecastP90}`);
+    }
+    if (marketProbability < 0.1) {
+      reasons.push('Market undervaluing');
+    }
+  } else {
+    // Overpriced - market is too bullish
+    if (forecastP50 !== null && forecastP50 > 3) {
+      reasons.push(`Model forecasts only #${forecastP50}`);
+    }
+    if (momentumScore < 40) {
+      reasons.push(`Low momentum (${momentumScore})`);
+    } else if (momentumScore < 55) {
+      reasons.push(`Moderate momentum (${momentumScore})`);
+    }
+    if (accelerationScore < -10) {
+      reasons.push('Losing steam');
+    }
+    if (historicalPattern === 'falling_fast') {
+      reasons.push('Falling fast in charts');
+    } else if (historicalPattern === 'falling_slow') {
+      reasons.push('Slowly declining');
+    }
+    if (forecastP10 !== null && forecastP10 > 2) {
+      reasons.push(`Even best case is only #${forecastP10}`);
+    }
+    if (marketProbability > 0.7) {
+      reasons.push('Market may be overconfident');
+    }
+  }
+
+  if (reasons.length === 0) {
+    return direction === 'BUY'
+      ? 'Model sees upside potential'
+      : 'Model sees downside risk';
+  }
+
+  return reasons.slice(0, 3).join(' | ');
 }
