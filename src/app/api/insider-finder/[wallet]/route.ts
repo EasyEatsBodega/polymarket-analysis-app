@@ -104,6 +104,8 @@ export const BADGE_TOOLTIPS: Record<InsiderBadgeType, string> = {
   PRE_MOVE: 'Price moved 20%+ within 24h of this trade',
   LATE_WINNER: 'Correct bet placed within 7 days of resolution',
   FIRST_MOVER: 'Among first 10 traders on this market',
+  FRESH_WALLET: 'Wallet is less than 7 days old',
+  SINGLE_MARKET: 'Only traded on one market',
 };
 
 export async function GET(
