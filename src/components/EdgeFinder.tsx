@@ -10,6 +10,7 @@ interface EdgeOpportunity {
   outcomeName: string;
   titleId: string | null;
   titleName: string | null;
+  signalType: 'model_edge' | 'market_momentum';
   marketProbability: number;
   modelProbability: number;
   edge: number;
@@ -25,6 +26,8 @@ interface EdgeOpportunity {
   historicalPattern: string;
   reasoning: string;
   priceChange24h: number | null;
+  priceChange7d: number | null;
+  volume24h: number | null;
 }
 
 interface EdgeFinderResponse {
@@ -32,6 +35,8 @@ interface EdgeFinderResponse {
   data: EdgeOpportunity[];
   meta: {
     totalEdges: number;
+    modelEdges: number;
+    momentumSignals: number;
     strongSignals: number;
     moderateSignals: number;
     buySignals: number;
@@ -44,6 +49,21 @@ interface EdgeFinderResponse {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function SignalTypeBadge({ signalType }: { signalType: 'model_edge' | 'market_momentum' }) {
+  if (signalType === 'model_edge') {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+        MODEL
+      </span>
+    );
+  }
+  return (
+    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
+      TREND
+    </span>
+  );
 }
 
 function SignalBadge({ direction, strength }: { direction: 'BUY' | 'AVOID'; strength: string }) {
@@ -64,9 +84,24 @@ function SignalBadge({ direction, strength }: { direction: 'BUY' | 'AVOID'; stre
   );
 }
 
-function EdgeBar({ marketProb, modelProb }: { marketProb: number; modelProb: number }) {
+function EdgeBar({ marketProb, modelProb, signalType }: { marketProb: number; modelProb: number; signalType: 'model_edge' | 'market_momentum' }) {
   const isPositive = modelProb > marketProb;
   const maxProb = Math.max(marketProb, modelProb, 0.5);
+
+  if (signalType === 'market_momentum') {
+    // For momentum signals, just show the current market probability
+    return (
+      <div className="relative h-6 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className="absolute top-0 left-0 h-full bg-pine-blue bg-opacity-30 rounded-full"
+          style={{ width: `${(marketProb / maxProb) * 100}%` }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center text-xs font-medium">
+          <span className="text-pine-blue">Market: {formatPercent(marketProb)}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-6 bg-gray-100 rounded-full overflow-hidden">
@@ -92,14 +127,22 @@ function EdgeBar({ marketProb, modelProb }: { marketProb: number; modelProb: num
 }
 
 function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
-  const isPositive = edge.edge > 0;
+  const isPositive = edge.direction === 'BUY';
+  const isModelEdge = edge.signalType === 'model_edge';
 
-  // Format forecast range
+  // Format forecast range (only for model_edge)
   const forecastRange = edge.forecastP10 !== null && edge.forecastP90 !== null
     ? `#${edge.forecastP10}-${edge.forecastP90}`
     : edge.forecastP50 !== null
       ? `#${edge.forecastP50}`
       : '-';
+
+  // Format price changes (for momentum signals)
+  const formatPriceChange = (change: number | null) => {
+    if (change === null) return '-';
+    const sign = change > 0 ? '+' : '';
+    return `${sign}${change.toFixed(1)}%`;
+  };
 
   return (
     <a
@@ -111,6 +154,9 @@ function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <SignalTypeBadge signalType={edge.signalType} />
+          </div>
           <h4 className="font-semibold text-gunmetal truncate">{edge.outcomeName}</h4>
           <span className="text-xs text-gray-500">{edge.marketLabel}</span>
         </div>
@@ -119,7 +165,11 @@ function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
 
       {/* Edge Visualization */}
       <div className="mb-3">
-        <EdgeBar marketProb={edge.marketProbability} modelProb={edge.modelProbability} />
+        <EdgeBar
+          marketProb={edge.marketProbability}
+          modelProb={edge.modelProbability}
+          signalType={edge.signalType}
+        />
       </div>
 
       {/* Reasoning */}
@@ -128,45 +178,76 @@ function EdgeCard({ edge }: { edge: EdgeOpportunity }) {
         {edge.reasoning}
       </div>
 
-      {/* Edge Display */}
+      {/* Edge/Momentum Display */}
       <div className={`text-center p-3 rounded-lg mb-3 ${
         isPositive
           ? 'bg-green-50 border border-green-200'
           : 'bg-red-50 border border-red-200'
       }`}>
         <div className="text-xs text-gray-600 mb-0.5">
-          {isPositive ? 'UNDERPRICED' : 'OVERPRICED'}
+          {isModelEdge
+            ? (isPositive ? 'UNDERPRICED' : 'OVERPRICED')
+            : (isPositive ? 'TRENDING UP' : 'TRENDING DOWN')
+          }
         </div>
         <div className={`text-2xl font-bold ${
           isPositive ? 'text-green-600' : 'text-red-600'
         }`}>
           {isPositive ? '+' : ''}{edge.edgePercent.toFixed(1)}%
         </div>
+        <div className="text-xs text-gray-500 mt-1">
+          {isModelEdge ? 'model edge' : 'price momentum'}
+        </div>
       </div>
 
-      {/* Supporting Metrics */}
-      <div className="grid grid-cols-3 gap-2 text-xs border-t border-dust-grey pt-3">
-        <div className="text-center">
-          <span className="block text-gray-400">Forecast</span>
-          <span className="font-semibold text-gunmetal">{forecastRange}</span>
+      {/* Supporting Metrics - Different for each signal type */}
+      {isModelEdge ? (
+        <div className="grid grid-cols-3 gap-2 text-xs border-t border-dust-grey pt-3">
+          <div className="text-center">
+            <span className="block text-gray-400">Forecast</span>
+            <span className="font-semibold text-gunmetal">{forecastRange}</span>
+          </div>
+          <div className="text-center">
+            <span className="block text-gray-400">Momentum</span>
+            <span className={`font-semibold ${
+              edge.momentumScore >= 70 ? 'text-green-600' :
+              edge.momentumScore >= 50 ? 'text-yellow-600' : 'text-red-500'
+            }`}>{edge.momentumScore}</span>
+          </div>
+          <div className="text-center">
+            <span className="block text-gray-400">Trend</span>
+            <span className={`font-semibold ${
+              edge.accelerationScore > 0 ? 'text-green-600' :
+              edge.accelerationScore < 0 ? 'text-red-500' : 'text-gray-500'
+            }`}>
+              {edge.accelerationScore > 0 ? '↑' : edge.accelerationScore < 0 ? '↓' : '→'}
+            </span>
+          </div>
         </div>
-        <div className="text-center">
-          <span className="block text-gray-400">Momentum</span>
-          <span className={`font-semibold ${
-            edge.momentumScore >= 70 ? 'text-green-600' :
-            edge.momentumScore >= 50 ? 'text-yellow-600' : 'text-red-500'
-          }`}>{edge.momentumScore}</span>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 text-xs border-t border-dust-grey pt-3">
+          <div className="text-center">
+            <span className="block text-gray-400">24h</span>
+            <span className={`font-semibold ${
+              (edge.priceChange24h ?? 0) > 0 ? 'text-green-600' :
+              (edge.priceChange24h ?? 0) < 0 ? 'text-red-500' : 'text-gray-500'
+            }`}>{formatPriceChange(edge.priceChange24h)}</span>
+          </div>
+          <div className="text-center">
+            <span className="block text-gray-400">7d</span>
+            <span className={`font-semibold ${
+              (edge.priceChange7d ?? 0) > 0 ? 'text-green-600' :
+              (edge.priceChange7d ?? 0) < 0 ? 'text-red-500' : 'text-gray-500'
+            }`}>{formatPriceChange(edge.priceChange7d)}</span>
+          </div>
+          <div className="text-center">
+            <span className="block text-gray-400">Volume</span>
+            <span className="font-semibold text-gunmetal">
+              {edge.volume24h ? `$${(edge.volume24h / 1000).toFixed(0)}k` : '-'}
+            </span>
+          </div>
         </div>
-        <div className="text-center">
-          <span className="block text-gray-400">Trend</span>
-          <span className={`font-semibold ${
-            edge.accelerationScore > 0 ? 'text-green-600' :
-            edge.accelerationScore < 0 ? 'text-red-500' : 'text-gray-500'
-          }`}>
-            {edge.accelerationScore > 0 ? '↑' : edge.accelerationScore < 0 ? '↓' : '→'}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* Footer */}
       <div className="mt-3 pt-2 border-t border-dust-grey flex items-center justify-between">
@@ -204,12 +285,9 @@ function LoadingState() {
 function EmptyState() {
   return (
     <div className="bg-gray-50 rounded-lg p-6 text-center border border-dust-grey">
-      <p className="text-gray-500">No edge opportunities with forecast data.</p>
+      <p className="text-gray-500">No trading signals available.</p>
       <p className="text-sm text-gray-400 mt-1">
-        We only show edges for titles where we have actual forecast data.
-      </p>
-      <p className="text-sm text-gray-400 mt-1">
-        Forecasts are generated from Netflix rankings + Google Trends + Wikipedia data.
+        Check back soon - signals are generated from price trends and model forecasts.
       </p>
     </div>
   );
@@ -221,7 +299,7 @@ interface EdgeFinderProps {
   limit?: number;
 }
 
-export default function EdgeFinder({ category, minEdge = 10, limit = 12 }: EdgeFinderProps) {
+export default function EdgeFinder({ category, minEdge = 5, limit = 12 }: EdgeFinderProps) {
   const [response, setResponse] = useState<EdgeFinderResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -279,7 +357,13 @@ export default function EdgeFinder({ category, minEdge = 10, limit = 12 }: EdgeF
       {/* Summary Header */}
       <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-dust-grey flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-gray-600">
-          <span className="font-semibold text-gunmetal">{meta.totalEdges}</span> opportunities with {minEdge}%+ edge
+          <span className="font-semibold text-gunmetal">{meta.totalEdges}</span> signals
+          {meta.modelEdges > 0 && (
+            <span className="ml-2 text-purple-600">({meta.modelEdges} model)</span>
+          )}
+          {meta.momentumSignals > 0 && (
+            <span className="ml-2 text-blue-600">({meta.momentumSignals} trend)</span>
+          )}
         </div>
         <div className="flex gap-4 text-sm">
           <span className="text-green-600 font-medium">
@@ -287,9 +371,6 @@ export default function EdgeFinder({ category, minEdge = 10, limit = 12 }: EdgeF
           </span>
           <span className="text-red-600 font-medium">
             {meta.avoidSignals} AVOID
-          </span>
-          <span className="text-gray-500">
-            Avg: {meta.avgEdge}%
           </span>
         </div>
       </div>

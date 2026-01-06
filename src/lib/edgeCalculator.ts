@@ -26,11 +26,14 @@ export interface EdgeOpportunity {
   titleId: string | null;
   titleName: string | null;
 
+  // Signal type: 'model_edge' has forecast data, 'market_momentum' uses price trends
+  signalType: 'model_edge' | 'market_momentum';
+
   // Probabilities
   marketProbability: number;   // From Polymarket (0-1)
-  modelProbability: number;    // Our calculation (0-1)
+  modelProbability: number;    // Our calculation (0-1) or same as market for momentum signals
 
-  // Edge calculation
+  // Edge calculation (for model_edge) or price momentum (for market_momentum)
   edge: number;                // model - market (positive = underpriced)
   edgePercent: number;         // Edge as percentage points
 
@@ -38,7 +41,7 @@ export interface EdgeOpportunity {
   signalStrength: 'strong' | 'moderate' | 'weak';
   direction: 'BUY' | 'AVOID';
 
-  // Supporting data
+  // Supporting data (for model_edge signals)
   momentumScore: number;
   accelerationScore: number;
   forecastP50: number | null;
@@ -50,8 +53,10 @@ export interface EdgeOpportunity {
   // Reasoning - why we think this is mispriced
   reasoning: string;
 
-  // Price history for trend
+  // Price history for trend (especially for market_momentum signals)
   priceChange24h: number | null;
+  priceChange7d: number | null;
+  volume24h: number | null;
 }
 
 /**
@@ -322,4 +327,97 @@ export function generateReasoning(params: {
   }
 
   return reasons.slice(0, 3).join(' | ');
+}
+
+/**
+ * Generate reasoning for market momentum signals (no forecast data)
+ */
+export function generateMomentumReasoning(params: {
+  direction: 'BUY' | 'AVOID';
+  priceChange24h: number | null;
+  priceChange7d: number | null;
+  marketProbability: number;
+  volume: number;
+}): string {
+  const {
+    direction,
+    priceChange24h,
+    priceChange7d,
+    marketProbability,
+    volume,
+  } = params;
+
+  const reasons: string[] = [];
+
+  if (direction === 'BUY') {
+    // Positive momentum - price rising
+    if (priceChange24h !== null && priceChange24h > 5) {
+      reasons.push(`Price up ${priceChange24h.toFixed(1)}% (24h)`);
+    } else if (priceChange24h !== null && priceChange24h > 2) {
+      reasons.push(`Price rising (${priceChange24h.toFixed(1)}% 24h)`);
+    }
+    if (priceChange7d !== null && priceChange7d > 10) {
+      reasons.push(`Strong weekly trend (+${priceChange7d.toFixed(1)}%)`);
+    }
+    if (marketProbability < 0.15 && priceChange24h !== null && priceChange24h > 0) {
+      reasons.push('Low odds, gaining momentum');
+    }
+    if (volume > 50000) {
+      reasons.push('High trading volume');
+    }
+  } else {
+    // Negative momentum - price falling
+    if (priceChange24h !== null && priceChange24h < -5) {
+      reasons.push(`Price down ${Math.abs(priceChange24h).toFixed(1)}% (24h)`);
+    } else if (priceChange24h !== null && priceChange24h < -2) {
+      reasons.push(`Price falling (${priceChange24h.toFixed(1)}% 24h)`);
+    }
+    if (priceChange7d !== null && priceChange7d < -10) {
+      reasons.push(`Weak weekly trend (${priceChange7d.toFixed(1)}%)`);
+    }
+    if (marketProbability > 0.5 && priceChange24h !== null && priceChange24h < 0) {
+      reasons.push('High odds, losing momentum');
+    }
+  }
+
+  if (reasons.length === 0) {
+    return direction === 'BUY'
+      ? 'Market price trending up'
+      : 'Market price trending down';
+  }
+
+  return reasons.slice(0, 3).join(' | ');
+}
+
+/**
+ * Calculate price momentum signal from price changes
+ */
+export function calculateMomentumSignal(
+  priceChange24h: number | null,
+  priceChange7d: number | null,
+  marketProbability: number
+): { direction: 'BUY' | 'AVOID'; signalStrength: 'strong' | 'moderate' | 'weak'; score: number } {
+  // Weight 24h change more heavily, but consider 7d trend
+  const change24h = priceChange24h ?? 0;
+  const change7d = priceChange7d ?? 0;
+
+  // Calculate combined momentum score
+  const momentumScore = (change24h * 2) + (change7d * 0.5);
+
+  // Determine direction
+  const direction: 'BUY' | 'AVOID' = momentumScore > 0 ? 'BUY' : 'AVOID';
+
+  // Determine signal strength
+  let signalStrength: 'strong' | 'moderate' | 'weak';
+  const absScore = Math.abs(momentumScore);
+
+  if (absScore >= 15) {
+    signalStrength = 'strong';
+  } else if (absScore >= 5) {
+    signalStrength = 'moderate';
+  } else {
+    signalStrength = 'weak';
+  }
+
+  return { direction, signalStrength, score: momentumScore };
 }
