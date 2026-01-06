@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
       jobRunId: jobRun.id,
       durationMs: duration,
       stats: {
+        titlesCreated: result.titlesCreated,
         marketsDiscovered: result.marketsDiscovered,
         marketsCreated: result.marketsCreated,
         marketsUpdated: result.marketsUpdated,

@@ -47,7 +47,165 @@ interface SyncResult {
   marketsUpdated: number;
   priceSnapshots: number;
   titleLinksCreated: number;
+  titlesCreated: number;
   errors: string[];
+}
+
+// Our curated Netflix markets API response types
+interface ParsedOutcome {
+  name: string;
+  probability: number;
+  volume: number;
+}
+
+interface ParsedMarket {
+  slug: string;
+  label: string;
+  question: string;
+  category: string;
+  rank: number;
+  outcomes: ParsedOutcome[];
+  totalVolume: number;
+  polymarketUrl: string;
+}
+
+type PolymarketData = ParsedMarket[] | Record<string, ParsedMarket[]>;
+
+interface PolymarketNetflixResponse {
+  success: boolean;
+  data: PolymarketData;
+}
+
+function flattenMarkets(data: PolymarketData): ParsedMarket[] {
+  if (Array.isArray(data)) return data;
+  return Object.values(data).flat();
+}
+
+/**
+ * Determine title type from market category
+ */
+function getTitleTypeFromCategory(category: string): 'SHOW' | 'MOVIE' {
+  const lowerCat = category.toLowerCase();
+  if (lowerCat.includes('film') || lowerCat.includes('movie')) {
+    return 'MOVIE';
+  }
+  return 'SHOW';
+}
+
+/**
+ * Clean outcome name for title matching
+ * Removes season suffixes for matching but keeps original for display
+ */
+function normalizeForMatching(name: string): string {
+  return name
+    .replace(/:\s*Season\s+\d+$/i, '')
+    .replace(/\s*\(.*?\)\s*$/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Sync titles from Polymarket outcomes to our database
+ * Creates Title records for any outcomes that don't exist
+ */
+async function syncPolymarketTitles(result: SyncResult): Promise<void> {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://predicteasy.vercel.app';
+
+  try {
+    // Fetch all Netflix markets from our curated API
+    const response = await axios.get<PolymarketNetflixResponse>(`${baseUrl}/api/polymarket-netflix`, {
+      timeout: 30000,
+    });
+
+    if (!response.data.success) {
+      result.errors.push('Failed to fetch polymarket-netflix data');
+      return;
+    }
+
+    const markets = flattenMarkets(response.data.data);
+    console.log(`Processing ${markets.length} markets for title sync...`);
+
+    // Get all existing titles
+    const existingTitles = await prisma.title.findMany({
+      select: { id: true, canonicalName: true, type: true, aliases: true },
+    });
+
+    // Build a map for fast lookup
+    const titleMap = new Map<string, { id: string; canonicalName: string }>();
+    for (const title of existingTitles) {
+      const normalizedName = normalizeForMatching(title.canonicalName);
+      titleMap.set(`${normalizedName}:${title.type}`, { id: title.id, canonicalName: title.canonicalName });
+
+      // Also index by aliases
+      if (title.aliases && Array.isArray(title.aliases)) {
+        for (const alias of title.aliases as string[]) {
+          const normalizedAlias = normalizeForMatching(alias);
+          titleMap.set(`${normalizedAlias}:${title.type}`, { id: title.id, canonicalName: title.canonicalName });
+        }
+      }
+    }
+
+    // Track which outcomes we've processed to avoid duplicates
+    const processedOutcomes = new Set<string>();
+
+    for (const market of markets) {
+      const titleType = getTitleTypeFromCategory(market.category);
+
+      for (const outcome of market.outcomes) {
+        // Skip "Other" outcomes
+        if (outcome.name.toLowerCase() === 'other') continue;
+
+        const normalizedName = normalizeForMatching(outcome.name);
+        const key = `${normalizedName}:${titleType}`;
+
+        // Skip if we already processed this outcome
+        if (processedOutcomes.has(key)) continue;
+        processedOutcomes.add(key);
+
+        // Check if title already exists
+        const existingTitle = titleMap.get(key);
+
+        if (!existingTitle) {
+          // Create new Title record
+          try {
+            const newTitle = await prisma.title.create({
+              data: {
+                canonicalName: outcome.name, // Keep original name with season
+                type: titleType,
+                aliases: [], // Can be populated later
+              },
+            });
+
+            // Add to map for future lookups in this run
+            titleMap.set(key, { id: newTitle.id, canonicalName: newTitle.canonicalName });
+
+            // Also add external ID to track source
+            await prisma.titleExternalId.create({
+              data: {
+                titleId: newTitle.id,
+                provider: 'polymarket',
+                externalId: outcome.name, // Use outcome name as identifier
+              },
+            });
+
+            result.titlesCreated++;
+            console.log(`Created title: ${outcome.name} (${titleType})`);
+          } catch (error) {
+            // Handle unique constraint violations (race conditions)
+            if (error instanceof Error && error.message.includes('Unique constraint')) {
+              // Title was created by another process, ignore
+            } else {
+              result.errors.push(`Failed to create title "${outcome.name}": ${error instanceof Error ? error.message : error}`);
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`Title sync complete: ${result.titlesCreated} new titles created`);
+  } catch (error) {
+    result.errors.push(`Error syncing Polymarket titles: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 /**
@@ -329,12 +487,18 @@ export async function syncPolymarket(priceSnapshotOnly = false): Promise<SyncRes
     marketsUpdated: 0,
     priceSnapshots: 0,
     titleLinksCreated: 0,
+    titlesCreated: 0,
     errors: [],
   };
 
   try {
     if (!priceSnapshotOnly) {
-      // Discover new markets
+      // Step 1: Sync Polymarket titles to database
+      // This creates Title records for any Polymarket outcomes we don't have yet
+      console.log('Syncing Polymarket titles to database...');
+      await syncPolymarketTitles(result);
+
+      // Step 2: Discover new markets from Polymarket API
       console.log('Searching for Netflix-related markets...');
       const events = await searchNetflixEvents();
       console.log(`Found ${events.length} events to process`);
@@ -371,6 +535,7 @@ export async function runPolymarketJob(priceSnapshotOnly = false): Promise<void>
 
     const duration = Date.now() - startTime;
     console.log(`Polymarket sync complete in ${duration}ms`);
+    console.log(`Titles created: ${result.titlesCreated}`);
     console.log(`Markets: ${result.marketsCreated} created, ${result.marketsUpdated} updated`);
     console.log(`Price snapshots: ${result.priceSnapshots}`);
     console.log(`Title links: ${result.titleLinksCreated}`);

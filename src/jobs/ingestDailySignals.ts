@@ -37,13 +37,16 @@ interface IngestSignalsResult {
 }
 
 /**
- * Get active titles from the database (those with recent Netflix data)
+ * Get active titles from the database
+ * Includes:
+ * - Titles with recent Netflix Top 10 data (last 90 days)
+ * - Titles sourced from Polymarket (for pre-release signal collection)
  */
 async function getActiveTitles(): Promise<{ id: string; canonicalName: string; type: 'SHOW' | 'MOVIE' }[]> {
-  // Get titles that have appeared in Netflix Top 10 in the last 90 days
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
+  // Get titles that have appeared in Netflix Top 10 in the last 90 days
   const titlesWithGlobal = await prisma.title.findMany({
     where: {
       weeklyGlobal: {
@@ -66,11 +69,26 @@ async function getActiveTitles(): Promise<{ id: string; canonicalName: string; t
     select: { id: true, canonicalName: true, type: true },
   });
 
+  // Get titles sourced from Polymarket (pre-release content)
+  // These titles were created from Polymarket outcomes and need signal collection
+  const polymarketTitles = await prisma.title.findMany({
+    where: {
+      externalIds: {
+        some: {
+          provider: 'polymarket',
+        },
+      },
+    },
+    select: { id: true, canonicalName: true, type: true },
+  });
+
   // Combine and dedupe
   const titleMap = new Map<string, { id: string; canonicalName: string; type: 'SHOW' | 'MOVIE' }>();
-  for (const title of [...titlesWithGlobal, ...titlesWithUS]) {
+  for (const title of [...titlesWithGlobal, ...titlesWithUS, ...polymarketTitles]) {
     titleMap.set(title.id, title);
   }
+
+  console.log(`Found ${titleMap.size} active titles (${polymarketTitles.length} from Polymarket)`);
 
   return Array.from(titleMap.values());
 }
