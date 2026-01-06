@@ -34,14 +34,27 @@ interface ParsedMarket {
   polymarketUrl: string;
 }
 
+// Response can be either an array (when filtered by tab) or grouped object (all markets)
+type PolymarketData = ParsedMarket[] | Record<string, ParsedMarket[]>;
+
 interface PolymarketApiResponse {
   success: boolean;
-  data: ParsedMarket[];
+  data: PolymarketData;
   meta: {
-    tab: string;
-    count: number;
+    tab?: string;
+    totalMarkets?: number;
+    count?: number;
     fetchedAt: string;
   };
+}
+
+// Helper to flatten grouped data into array
+function flattenMarkets(data: PolymarketData): ParsedMarket[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  // It's a grouped object - flatten all categories
+  return Object.values(data).flat();
 }
 
 export interface EdgeFinderResponse {
@@ -114,7 +127,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
 
     // 4. Process markets and calculate edges
     const edges: EdgeOpportunity[] = [];
-    const marketsToProcess = polymarketData.data;
+    const marketsToProcess = flattenMarkets(polymarketData.data);
 
     for (const market of marketsToProcess) {
       for (const outcome of market.outcomes) {
