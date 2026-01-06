@@ -63,7 +63,7 @@
     },
     {
       "path": "/api/jobs/scan-insiders",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
