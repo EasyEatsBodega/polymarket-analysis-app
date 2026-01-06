@@ -1,15 +1,22 @@
 /**
  * Daily Signals Ingestion API Endpoint
  *
- * Triggered by Vercel Cron (daily at 9:00 UTC) or manually.
- * Fetches Google Trends and Wikipedia signals for active titles.
+ * Triggered by Vercel Cron or manually.
+ * Uses chunked processing to work within Vercel's timeout limits.
+ *
+ * Query params:
+ * - batchSize: Number of titles to process per request (default: 5)
+ * - offset: Starting index for batch processing (default: 0)
+ * - date: Target date for signals (default: today)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { ingestDailySignals } from '@/jobs/ingestDailySignals';
+import { ingestSignalsForTitles, getActiveTitlesForSignals } from '@/jobs/ingestDailySignals';
 export const dynamic = 'force-dynamic';
 import prisma from '@/lib/prisma';
 
+// Default batch size - process 5 titles per request to stay within timeout
+const DEFAULT_BATCH_SIZE = 5;
 
 // Verify cron secret for security
 function verifyCronSecret(request: NextRequest): boolean {
@@ -36,49 +43,72 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Optional date parameter for backfilling
+  // Parse query parameters
+  const batchSize = parseInt(request.nextUrl.searchParams.get('batchSize') || String(DEFAULT_BATCH_SIZE));
+  const offset = parseInt(request.nextUrl.searchParams.get('offset') || '0');
   const dateParam = request.nextUrl.searchParams.get('date');
   const targetDate = dateParam ? new Date(dateParam) : new Date();
 
   const startTime = Date.now();
 
-  // Create job run record
-  const jobRun = await prisma.jobRun.create({
-    data: {
-      jobName: 'ingest_daily_signals',
-      status: 'RUNNING',
-    },
-  });
-
   try {
-    console.log('Starting daily signals ingestion via API...');
-    const result = await ingestDailySignals(targetDate);
+    // Get all active titles
+    const allTitles = await getActiveTitlesForSignals();
+    const totalTitles = allTitles.length;
+
+    // Get batch to process
+    const titlesToProcess = allTitles.slice(offset, offset + batchSize);
+
+    if (titlesToProcess.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'No more titles to process',
+        stats: {
+          totalTitles,
+          processed: 0,
+          offset,
+          batchSize,
+          isComplete: true,
+        },
+      });
+    }
+
+    console.log(`Processing batch: titles ${offset + 1}-${offset + titlesToProcess.length} of ${totalTitles}`);
+
+    // Process this batch
+    const result = await ingestSignalsForTitles(titlesToProcess, targetDate);
 
     const duration = Date.now() - startTime;
+    const nextOffset = offset + batchSize;
+    const isComplete = nextOffset >= totalTitles;
 
-    // Update job run with success
-    await prisma.jobRun.update({
-      where: { id: jobRun.id },
+    // Log progress
+    await prisma.jobRun.create({
       data: {
+        jobName: 'ingest_signals_batch',
         status: 'SUCCESS',
         finishedAt: new Date(),
         detailsJson: {
           durationMs: duration,
           triggeredBy: isManual ? 'manual' : 'cron',
           targetDate: targetDate.toISOString(),
+          batch: { offset, batchSize, totalTitles },
           ...result,
-          errors: result.errors.slice(0, 100),
+          errors: result.errors.slice(0, 20),
         },
       },
     });
 
     return NextResponse.json({
       success: true,
-      jobRunId: jobRun.id,
       durationMs: duration,
       targetDate: targetDate.toISOString(),
       stats: {
-        titlesProcessed: result.titlesProcessed,
+        totalTitles,
+        batchProcessed: titlesToProcess.length,
+        offset,
+        nextOffset: isComplete ? null : nextOffset,
+        isComplete,
         signalsCreated: result.signalsCreated,
         trends: {
           successes: result.trendsSuccesses,
@@ -90,33 +120,21 @@ export async function GET(request: NextRequest) {
         },
         errorCount: result.errors.length,
       },
+      // Include next URL for easy chaining
+      nextUrl: isComplete ? null : `/api/jobs/ingest-signals?offset=${nextOffset}&batchSize=${batchSize}${dateParam ? `&date=${dateParam}` : ''}`,
     });
   } catch (error) {
     const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // Update job run with failure
-    await prisma.jobRun.update({
-      where: { id: jobRun.id },
-      data: {
-        status: 'FAIL',
-        finishedAt: new Date(),
-        error: errorMessage,
-        detailsJson: {
-          durationMs: duration,
-          triggeredBy: isManual ? 'manual' : 'cron',
-        },
-      },
-    });
-
-    console.error('Signals ingestion failed:', error);
+    console.error('Signals ingestion batch failed:', error);
 
     return NextResponse.json(
       {
         success: false,
-        jobRunId: jobRun.id,
         error: errorMessage,
         durationMs: duration,
+        stats: { offset, batchSize },
       },
       { status: 500 }
     );

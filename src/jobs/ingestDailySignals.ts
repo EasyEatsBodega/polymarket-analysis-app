@@ -41,8 +41,10 @@ interface IngestSignalsResult {
  * Includes:
  * - Titles with recent Netflix Top 10 data (last 90 days)
  * - Titles sourced from Polymarket (for pre-release signal collection)
+ *
+ * Exported for use by chunked API processing
  */
-async function getActiveTitles(): Promise<{ id: string; canonicalName: string; type: 'SHOW' | 'MOVIE' }[]> {
+export async function getActiveTitlesForSignals(): Promise<{ id: string; canonicalName: string; type: 'SHOW' | 'MOVIE' }[]> {
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
@@ -239,7 +241,72 @@ async function processTitle(
 }
 
 /**
- * Main ingestion function
+ * Process a batch of titles for signals
+ * Used by chunked API processing
+ */
+export async function ingestSignalsForTitles(
+  titles: { id: string; canonicalName: string; type: 'SHOW' | 'MOVIE' }[],
+  targetDate?: Date
+): Promise<Omit<IngestSignalsResult, 'titlesProcessed'> & { signalsCreated: number }> {
+  const date = targetDate || new Date();
+  date.setHours(0, 0, 0, 0);
+
+  const results: IngestSignalsResult = {
+    titlesProcessed: 0,
+    signalsCreated: 0,
+    trendsSuccesses: 0,
+    trendsFailed: 0,
+    wikipediaSuccesses: 0,
+    wikipediaFailed: 0,
+    errors: [],
+  };
+
+  for (const title of titles) {
+    try {
+      const signals = await processTitle(title, date, results);
+
+      // Upsert signals to database
+      for (const signal of signals) {
+        await prisma.dailySignal.upsert({
+          where: {
+            titleId_date_source_geo: {
+              titleId: signal.titleId,
+              date: signal.date,
+              source: signal.source,
+              geo: signal.geo,
+            },
+          },
+          create: {
+            titleId: signal.titleId,
+            date: signal.date,
+            source: signal.source,
+            geo: signal.geo,
+            value: signal.value,
+          },
+          update: {
+            value: signal.value,
+          },
+        });
+        results.signalsCreated++;
+      }
+
+      results.titlesProcessed++;
+      console.log(`Processed: ${title.canonicalName}`);
+
+      // Rate limiting delay between titles (reduced for batch processing)
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      results.errors.push(
+        `Error processing "${title.canonicalName}": ${error instanceof Error ? error.message : error}`
+      );
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Main ingestion function (processes all titles at once)
  */
 export async function ingestDailySignals(
   targetDate?: Date
@@ -260,7 +327,7 @@ export async function ingestDailySignals(
 
   try {
     // Get active titles
-    const titles = await getActiveTitles();
+    const titles = await getActiveTitlesForSignals();
     console.log(`Found ${titles.length} active titles to process`);
 
     if (titles.length === 0) {
