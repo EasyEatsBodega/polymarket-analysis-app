@@ -20,6 +20,10 @@
     {
       "path": "/api/jobs/sync-polymarket",
       "schedule": "0 */12 * * *"
+    },
+    {
+      "path": "/api/jobs/snapshot-prices",
+      "schedule": "0 * * * *"
     }
   ]
 }

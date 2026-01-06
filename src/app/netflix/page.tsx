@@ -6,6 +6,7 @@ import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
 import RankTrendChart from "@/components/RankTrendChart";
 import WatchlistPanel from "@/components/WatchlistPanel";
+import EdgeFinder from "@/components/EdgeFinder";
 import Header from "@/components/Header";
 
 type Tab = "shows-english" | "shows-non-english" | "films-english" | "films-non-english";
@@ -126,6 +127,18 @@ export default function NetflixPage() {
               </span>
             </div>
             <BreakoutGrid type={activeTabConfig.type} limit={6} />
+          </section>
+
+          <section className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                Edge Finder
+              </h2>
+              <span className="text-sm text-gray-500">
+                Model vs Market - Find mispriced bets
+              </span>
+            </div>
+            <EdgeFinder category={activeTab} minEdge={10} limit={6} />
           </section>
 
           <section>
