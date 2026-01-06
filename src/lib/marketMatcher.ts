@@ -79,12 +79,25 @@ function cleanOutcomeName(name: string): string {
 }
 
 /**
+ * Normalize title for matching (remove season suffixes, clean text)
+ */
+function normalizeForMatching(name: string): string {
+  let cleaned = name;
+  // Remove season suffixes
+  cleaned = cleaned.replace(/:\s*Season\s+\d+$/i, '');
+  cleaned = cleaned.replace(/\s*\(.*?\)\s*$/g, '');
+  cleaned = normalizeText(removeBracketedSuffixes(cleaned));
+  return createMatchingKey(cleaned);
+}
+
+/**
  * Match a Polymarket outcome name to a Netflix title
  *
  * Strategy:
- * 1. Exact match on normalized canonical name
- * 2. Exact match on any alias
- * 3. Fuzzy match using Levenshtein distance if no exact match
+ * 1. Exact match on full name (including season)
+ * 2. Exact match on normalized name (without season)
+ * 3. Exact match on any alias
+ * 4. Fuzzy match using Levenshtein distance if no exact match
  */
 export function matchOutcomeToTitle(
   outcomeName: string,
@@ -92,12 +105,25 @@ export function matchOutcomeToTitle(
 ): MarketOutcomeMatch {
   const cleanedOutcome = cleanOutcomeName(outcomeName);
   const normalizedOutcome = createMatchingKey(cleanedOutcome);
+  const normalizedOutcomeNoSeason = normalizeForMatching(outcomeName);
 
-  // Check exact match on canonical name
+  // Check exact match on full canonical name (including season)
   for (const [, title] of titleCache) {
     const normalizedTitle = createMatchingKey(title.canonicalName);
 
+    // First check full name match (e.g., "Stranger Things: Season 5")
     if (normalizedTitle === normalizedOutcome) {
+      return {
+        outcomeName,
+        matchedTitleId: title.id,
+        matchedTitleName: title.canonicalName,
+        matchConfidence: 'exact',
+      };
+    }
+
+    // Check if outcome matches title without season suffix
+    const normalizedTitleNoSeason = normalizeForMatching(title.canonicalName);
+    if (normalizedTitleNoSeason === normalizedOutcomeNoSeason) {
       return {
         outcomeName,
         matchedTitleId: title.id,
@@ -126,8 +152,9 @@ export function matchOutcomeToTitle(
   const MAX_DISTANCE = 3;
 
   for (const [, title] of titleCache) {
-    const normalizedTitle = createMatchingKey(title.canonicalName);
-    const distance = levenshteinDistance(normalizedOutcome, normalizedTitle);
+    // Try matching with season-normalized names for better fuzzy matching
+    const normalizedTitleNoSeason = normalizeForMatching(title.canonicalName);
+    const distance = levenshteinDistance(normalizedOutcomeNoSeason, normalizedTitleNoSeason);
 
     if (distance <= MAX_DISTANCE && (!bestMatch || distance < bestMatch.distance)) {
       bestMatch = { id: title.id, name: title.canonicalName, distance };
@@ -136,8 +163,8 @@ export function matchOutcomeToTitle(
     // Also check aliases for fuzzy match
     if (title.aliases) {
       for (const alias of title.aliases) {
-        const normalizedAlias = createMatchingKey(alias);
-        const aliasDistance = levenshteinDistance(normalizedOutcome, normalizedAlias);
+        const normalizedAlias = normalizeForMatching(alias);
+        const aliasDistance = levenshteinDistance(normalizedOutcomeNoSeason, normalizedAlias);
 
         if (aliasDistance <= MAX_DISTANCE && (!bestMatch || aliasDistance < bestMatch.distance)) {
           bestMatch = { id: title.id, name: title.canonicalName, distance: aliasDistance };
