@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import MoversTable from "@/components/MoversTable";
 import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
 import RankTrendChart from "@/components/RankTrendChart";
 import WatchlistPanel from "@/components/WatchlistPanel";
-import EdgeFinder from "@/components/EdgeFinder";
 import Header from "@/components/Header";
+import OpportunityGrid from "@/components/OpportunityGrid";
 
 type Tab = "shows-english" | "shows-non-english" | "films-english" | "films-non-english";
+type ViewMode = "rankings" | "opportunities";
 
 const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; geo: "GLOBAL" | "US"; language: "english" | "non-english" }[] = [
   { id: "shows-english", label: "TV (English)", type: "SHOW", geo: "GLOBAL", language: "english" },
@@ -22,6 +22,8 @@ export default function NetflixPage() {
   const [activeTab, setActiveTab] = useState<Tab>("shows-english");
   const [searchQuery, setSearchQuery] = useState("");
   const [showWatchlist, setShowWatchlist] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>("rankings");
+  const [minEdge, setMinEdge] = useState(10);
 
   const activeTabConfig = tabs.find((t) => t.id === activeTab)!;
 
@@ -99,21 +101,65 @@ export default function NetflixPage() {
             />
           </section>
 
-          {/* Top Movers Table */}
+          {/* Rankings & Opportunities - Main Dashboard */}
           <section className="mb-8">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <h2 className="text-xl font-semibold text-gunmetal">
-                Top 10 - {activeTabConfig.label}
+                {activeTabConfig.label}
               </h2>
-              <span className="text-sm text-gray-500">
-                Sorted by Rank
-              </span>
+
+              {/* View mode tabs */}
+              <div className="flex items-center gap-4">
+                <div className="flex rounded-lg border border-dust-grey overflow-hidden">
+                  <button
+                    onClick={() => setViewMode("rankings")}
+                    className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      viewMode === "rankings"
+                        ? "bg-pine-blue text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    All Rankings
+                  </button>
+                  <button
+                    onClick={() => setViewMode("opportunities")}
+                    className={`px-4 py-2 text-sm font-medium transition-colors ${
+                      viewMode === "opportunities"
+                        ? "bg-pine-blue text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    Opportunities
+                  </button>
+                </div>
+
+                {/* Min edge filter (only show for opportunities view) */}
+                {viewMode === "opportunities" && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-500">Min edge:</label>
+                    <select
+                      value={minEdge}
+                      onChange={(e) => setMinEdge(parseInt(e.target.value))}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-pine-blue"
+                    >
+                      <option value="5">5%</option>
+                      <option value="10">10%</option>
+                      <option value="15">15%</option>
+                      <option value="20">20%</option>
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
-            <MoversTable
+
+            {/* Opportunity Grid */}
+            <OpportunityGrid
               type={activeTabConfig.type}
-              geo={activeTabConfig.geo}
-              language={activeTabConfig.language}
-              limit={10}
+              category={activeTab}
+              minEdge={viewMode === "opportunities" ? minEdge : 0}
+              showOnlyOpportunities={viewMode === "opportunities"}
+              limit={viewMode === "opportunities" ? 20 : 10}
+              compact={false}
             />
           </section>
 
@@ -127,18 +173,6 @@ export default function NetflixPage() {
               </span>
             </div>
             <BreakoutGrid type={activeTabConfig.type} limit={6} />
-          </section>
-
-          <section className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gunmetal">
-                Edge Finder
-              </h2>
-              <span className="text-sm text-gray-500">
-                Model vs Market - Find mispriced bets
-              </span>
-            </div>
-            <EdgeFinder category={activeTab} minEdge={10} limit={6} />
           </section>
 
           <section>
