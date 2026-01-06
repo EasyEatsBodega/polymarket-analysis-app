@@ -319,12 +319,14 @@ async function awardBadges(walletId: string, result: ScanResult): Promise<void> 
 
 /**
  * Process a single wallet and its trades
+ * Returns 'skipped_high_trades' if wallet has too many total trades
  */
 async function processWallet(
   address: string,
   trades: ProcessedTrade[],
-  result: ScanResult
-): Promise<void> {
+  result: ScanResult,
+  maxTotalTrades: number = 50
+): Promise<'processed' | 'skipped_high_trades' | 'error'> {
   try {
     // Upsert wallet
     const existingWallet = await prisma.insiderWallet.findUnique({
@@ -333,6 +335,14 @@ async function processWallet(
 
     // Fetch wallet's FULL trade history to get true first trade date
     const fullHistory = await fetchTradesByWallet(address);
+    const actualTotalTrades = fullHistory.length;
+
+    // Skip wallets with too many total trades - they're not "insider-like"
+    if (actualTotalTrades > maxTotalTrades) {
+      console.log(`  ⏭️ ${address.slice(0, 8)}... skipped: ${actualTotalTrades} trades > ${maxTotalTrades} max`);
+      return 'skipped_high_trades';
+    }
+
     const allTimestamps = fullHistory.map((t) => t.timestamp * 1000); // Unix to ms
 
     // Use full history for first trade, scan trades for last trade
@@ -343,7 +353,6 @@ async function processWallet(
       : scanWindowFirstTrade;
     const lastTradeAt = new Date(Math.max(...timestamps));
     const totalVolume = trades.reduce((sum, t) => sum + t.usdValue, 0);
-    const actualTotalTrades = fullHistory.length;
 
     // Log before/after comparison
     const scanFirst = scanWindowFirstTrade.toISOString().split('T')[0];
@@ -424,8 +433,10 @@ async function processWallet(
     await awardBadges(wallet.id, result);
 
     result.walletsQualified++;
+    return 'processed';
   } catch (error) {
     result.errors.push(`Error processing wallet ${address}: ${error}`);
+    return 'error';
   }
 }
 
@@ -436,8 +447,24 @@ export async function scanInsiders(options: {
   daysBack?: number;
   minTradeSize?: number;
   maxTrades?: number;
+  maxTotalTrades?: number;
+  maxTradesToScan?: number;
+  maxNewWallets?: number;
+  maxExistingUpdates?: number;
+  timeoutMs?: number;
 } = {}): Promise<ScanResult> {
-  const { daysBack = 30, minTradeSize = 100, maxTrades = 20 } = options;
+  const {
+    daysBack = 30,
+    minTradeSize = 100,
+    maxTrades = 20,
+    maxTotalTrades = 50,
+    maxTradesToScan = 15000,
+    maxNewWallets = 30,
+    maxExistingUpdates = 20,
+    timeoutMs = 250000, // 250s - leave 50s buffer for Vercel's 300s limit
+  } = options;
+
+  const scanStartTime = Date.now();
 
   const result: ScanResult = {
     walletsScanned: 0,
@@ -449,43 +476,80 @@ export async function scanInsiders(options: {
     errors: [],
   };
 
+  // Helper to check if we're running out of time
+  const isTimedOut = () => Date.now() - scanStartTime > timeoutMs;
+  const timeRemaining = () => Math.max(0, timeoutMs - (Date.now() - scanStartTime));
+
   try {
-    console.log(`Scanning for insider wallets (last ${daysBack} days)...`);
+    console.log(`Scanning for insider wallets (last ${daysBack} days, timeout ${timeoutMs / 1000}s)...`);
 
     // Scan Polymarket for new wallets
     const walletTrades = await scanForNewWallets({
       daysBack,
       minTradeSize,
       maxTrades,
+      maxTradesToScan,
+      maxWallets: maxNewWallets,
     });
 
     result.walletsScanned = walletTrades.size;
-    console.log(`Found ${walletTrades.size} wallets to process`);
+    console.log(`Found ${walletTrades.size} wallets to process (${Math.round(timeRemaining() / 1000)}s remaining)`);
 
     // Process each wallet
     let processed = 0;
+    let skippedHighTrades = 0;
     for (const [address, trades] of walletTrades) {
-      await processWallet(address, trades, result);
+      // Check timeout before processing each wallet
+      if (isTimedOut()) {
+        console.log(`⏱️ Timeout reached after processing ${processed} wallets`);
+        result.errors.push(`Timeout: processed ${processed}/${walletTrades.size} wallets`);
+        break;
+      }
+
+      const walletResult = await processWallet(address, trades, result, maxTotalTrades);
+      if (walletResult === 'skipped_high_trades') {
+        skippedHighTrades++;
+      }
       processed++;
 
       if (processed % 10 === 0) {
-        console.log(`Processed ${processed}/${walletTrades.size} wallets`);
+        console.log(`Processed ${processed}/${walletTrades.size} wallets (${Math.round(timeRemaining() / 1000)}s remaining)`);
       }
     }
 
-    // Also update existing tracked wallets
-    const existingWallets = await prisma.insiderWallet.findMany({
-      where: { isTracked: true },
-      select: { id: true },
-    });
-
-    for (const wallet of existingWallets) {
-      await updateTradeResolutions(wallet.id);
-      await updateWalletStats(wallet.id);
-      await awardBadges(wallet.id, result);
+    if (skippedHighTrades > 0) {
+      console.log(`Skipped ${skippedHighTrades} wallets with >${maxTotalTrades} total trades`);
     }
 
-    console.log(`Scan complete: ${result.walletsQualified} qualifying wallets`);
+    // Update existing tracked wallets (limited to avoid timeout)
+    if (!isTimedOut()) {
+      const existingWallets = await prisma.insiderWallet.findMany({
+        where: { isTracked: true },
+        select: { id: true },
+        orderBy: { updatedAt: 'asc' }, // Update least recently updated first
+        take: maxExistingUpdates,
+      });
+
+      console.log(`Updating ${existingWallets.length} existing wallets (${Math.round(timeRemaining() / 1000)}s remaining)`);
+
+      let updatedCount = 0;
+      for (const wallet of existingWallets) {
+        if (isTimedOut()) {
+          console.log(`⏱️ Timeout during existing wallet updates`);
+          break;
+        }
+
+        await updateTradeResolutions(wallet.id);
+        await updateWalletStats(wallet.id);
+        await awardBadges(wallet.id, result);
+        updatedCount++;
+      }
+
+      console.log(`Updated ${updatedCount} existing wallets`);
+    }
+
+    const totalTime = Math.round((Date.now() - scanStartTime) / 1000);
+    console.log(`Scan complete in ${totalTime}s: ${result.walletsQualified} qualifying wallets`);
   } catch (error) {
     result.errors.push(`Fatal error: ${error instanceof Error ? error.message : error}`);
   }

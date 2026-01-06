@@ -667,9 +667,17 @@ export async function scanForNewWallets(
     daysBack?: number;
     minTradeSize?: number;
     maxTrades?: number;
+    maxTradesToScan?: number;
+    maxWallets?: number;
   } = {}
 ): Promise<Map<string, ProcessedTrade[]>> {
-  const { daysBack = 30, minTradeSize = 100, maxTrades = 20 } = options;
+  const {
+    daysBack = 30,
+    minTradeSize = 100,
+    maxTrades = 20,
+    maxTradesToScan = 15000,
+    maxWallets = 50,
+  } = options;
 
   const startTime = new Date();
   startTime.setDate(startTime.getDate() - daysBack);
@@ -682,7 +690,7 @@ export async function scanForNewWallets(
   const limit = 100;
   let emptyPages = 0;
 
-  console.log(`Scanning for new wallets (last ${daysBack} days, min $${minTradeSize}, max ${maxTrades} trades)...`);
+  console.log(`Scanning for new wallets (last ${daysBack} days, min $${minTradeSize}, max ${maxTrades} trades, limit ${maxTradesToScan} trades)...`);
 
   // Paginate through recent trades
   while (emptyPages < 3) {
@@ -723,20 +731,27 @@ export async function scanForNewWallets(
 
     offset += limit;
 
-    // Safety limit
-    if (offset > 50000) {
-      console.log('Reached safety limit of 50000 trades');
+    // Safety limit - reduced from 50k to configurable limit
+    if (offset > maxTradesToScan) {
+      console.log(`Reached trade scan limit of ${maxTradesToScan}`);
       break;
     }
 
-    console.log(`Processed ${offset} trades, found ${walletTrades.size} unique wallets`);
+    if (offset % 500 === 0) {
+      console.log(`Processed ${offset} trades, found ${walletTrades.size} unique wallets`);
+    }
   }
 
-  // Filter to wallets with <= maxTrades
+  // Filter to wallets with <= maxTrades, limit total wallets returned
   const qualifyingWallets = new Map<string, ProcessedTrade[]>();
   for (const [address, trades] of walletTrades) {
     if (trades.length <= maxTrades) {
       qualifyingWallets.set(address, trades);
+      // Stop if we've hit the wallet limit
+      if (qualifyingWallets.size >= maxWallets) {
+        console.log(`Reached wallet limit of ${maxWallets}`);
+        break;
+      }
     }
   }
 
