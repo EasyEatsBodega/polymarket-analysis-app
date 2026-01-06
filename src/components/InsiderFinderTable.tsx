@@ -434,18 +434,29 @@ export default function InsiderFinderTable({
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <code className="text-sm font-mono text-gunmetal">
+                      <a
+                        href={`https://polymarket.com/profile/${wallet.address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-pine-blue hover:underline"
+                      >
                         {formatAddress(wallet.address)}
-                      </code>
+                      </a>
                       <CopyButton text={wallet.address} />
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     {wallet.recentTrades.length > 0 ? (
-                      <div className="max-w-[200px]">
-                        <p className="text-sm text-gunmetal truncate" title={wallet.recentTrades[0].marketQuestion}>
+                      <div className="max-w-[250px]">
+                        <a
+                          href={`https://polymarket.com/event/${wallet.recentTrades[0].marketSlug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-pine-blue hover:underline truncate block"
+                          title={wallet.recentTrades[0].marketQuestion}
+                        >
                           {wallet.recentTrades[0].marketQuestion}
-                        </p>
+                        </a>
                         <p className="text-xs text-gray-500">
                           {wallet.recentTrades[0].side} {wallet.recentTrades[0].outcomeName} @ {(wallet.recentTrades[0].price * 100).toFixed(0)}¢
                         </p>

@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Parse options
-  const daysBack = parseInt(request.nextUrl.searchParams.get('daysBack') || '30');
+  // Parse options - default to 90 days to support all timeframe filters
+  const daysBack = parseInt(request.nextUrl.searchParams.get('daysBack') || '90');
   const minTradeSize = parseInt(request.nextUrl.searchParams.get('minTradeSize') || '500');
   const maxTrades = parseInt(request.nextUrl.searchParams.get('maxTrades') || '5');
 
