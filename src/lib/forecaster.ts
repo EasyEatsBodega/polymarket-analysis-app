@@ -321,6 +321,117 @@ export async function generateViewsForecast(
 }
 
 /**
+ * Generate pre-release forecast for titles without Netflix history
+ * Uses signal data (Google Trends, Wikipedia) to estimate potential ranking
+ */
+export async function generatePreReleaseForecast(
+  titleId: string,
+  targetWeekStart: Date
+): Promise<Forecast | null> {
+  // Get recent signals for this title (last 7 days)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const signals = await prisma.dailySignal.findMany({
+    where: {
+      titleId,
+      date: { gte: sevenDaysAgo },
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  if (signals.length === 0) {
+    return null; // No signal data available
+  }
+
+  // Calculate average signal values
+  const trendsSignals = signals.filter(s => s.source === 'TRENDS');
+  const wikiSignals = signals.filter(s => s.source === 'WIKIPEDIA');
+
+  const avgTrends = trendsSignals.length > 0
+    ? trendsSignals.reduce((sum, s) => sum + s.value, 0) / trendsSignals.length
+    : null;
+
+  const avgWiki = wikiSignals.length > 0
+    ? wikiSignals.reduce((sum, s) => sum + s.value, 0) / wikiSignals.length
+    : null;
+
+  // Calculate momentum score from signals (no rank data)
+  const weights = await getMomentumWeights();
+  let momentumScore = 50; // Default neutral
+
+  if (avgTrends !== null || avgWiki !== null) {
+    let score = 0;
+    let totalWeight = 0;
+
+    if (avgTrends !== null) {
+      // Google Trends is already 0-100
+      score += avgTrends * weights.trendsWeight;
+      totalWeight += weights.trendsWeight;
+    }
+
+    if (avgWiki !== null && avgWiki > 0) {
+      // Normalize Wikipedia views using log scale
+      const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
+      score += logNormalized * weights.wikipediaWeight;
+      totalWeight += weights.wikipediaWeight;
+    }
+
+    if (totalWeight > 0) {
+      momentumScore = Math.round(score / totalWeight);
+    }
+  }
+
+  // Estimate rank potential based on momentum
+  // High momentum (80+) suggests strong #1 potential
+  // Low momentum (<40) suggests unlikely to chart high
+  let predictedRank: number;
+  if (momentumScore >= 80) {
+    predictedRank = 1;
+  } else if (momentumScore >= 70) {
+    predictedRank = 2;
+  } else if (momentumScore >= 60) {
+    predictedRank = 3;
+  } else if (momentumScore >= 50) {
+    predictedRank = 5;
+  } else if (momentumScore >= 40) {
+    predictedRank = 7;
+  } else {
+    predictedRank = 9;
+  }
+
+  // Calculate uncertainty - higher for pre-release (less data)
+  const uncertainty = 2.5; // Higher uncertainty than established titles
+
+  // Generate percentile forecasts
+  const p50 = predictedRank;
+  const p10 = Math.max(1, Math.round(predictedRank - uncertainty));
+  const p90 = Math.min(10, Math.round(predictedRank + uncertainty));
+
+  const weekEnd = new Date(targetWeekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+
+  return {
+    titleId,
+    weekStart: targetWeekStart,
+    weekEnd,
+    target: 'RANK',
+    p10,
+    p50,
+    p90,
+    explain: {
+      momentumScore,
+      accelerationScore: 0, // No historical momentum to compare
+      trendsContribution: avgTrends,
+      wikipediaContribution: avgWiki,
+      rankTrendContribution: null,
+      historicalPattern: 'pre_release',
+      confidence: 'medium', // Always medium for pre-release
+    },
+  };
+}
+
+/**
  * Generate forecasts for all active titles
  */
 export async function generateAllForecasts(
@@ -329,11 +440,11 @@ export async function generateAllForecasts(
   const forecasts: Forecast[] = [];
   const errors: string[] = [];
 
-  // Get all titles with recent data
+  // Get all titles with recent Netflix data
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const titles = await prisma.title.findMany({
+  const netflixTitles = await prisma.title.findMany({
     where: {
       OR: [
         { weeklyGlobal: { some: { weekStart: { gte: thirtyDaysAgo } } } },
@@ -343,9 +454,9 @@ export async function generateAllForecasts(
     select: { id: true, canonicalName: true, type: true },
   });
 
-  console.log(`Generating forecasts for ${titles.length} titles...`);
+  console.log(`Generating forecasts for ${netflixTitles.length} Netflix titles...`);
 
-  for (const title of titles) {
+  for (const title of netflixTitles) {
     try {
       // Generate US rank forecast
       const usRankForecast = await generateForecast(title.id, targetWeekStart, 'RANK');
@@ -361,6 +472,36 @@ export async function generateAllForecasts(
     } catch (error) {
       errors.push(
         `Error forecasting ${title.canonicalName}: ${error instanceof Error ? error.message : error}`
+      );
+    }
+  }
+
+  // Get Polymarket titles (pre-release content)
+  const polymarketTitles = await prisma.title.findMany({
+    where: {
+      externalIds: {
+        some: { provider: 'polymarket' },
+      },
+      // Exclude titles that already have Netflix data
+      AND: [
+        { weeklyGlobal: { none: {} } },
+        { weeklyUS: { none: {} } },
+      ],
+    },
+    select: { id: true, canonicalName: true, type: true },
+  });
+
+  console.log(`Generating pre-release forecasts for ${polymarketTitles.length} Polymarket titles...`);
+
+  for (const title of polymarketTitles) {
+    try {
+      const preReleaseForecast = await generatePreReleaseForecast(title.id, targetWeekStart);
+      if (preReleaseForecast) {
+        forecasts.push(preReleaseForecast);
+      }
+    } catch (error) {
+      errors.push(
+        `Error forecasting pre-release ${title.canonicalName}: ${error instanceof Error ? error.message : error}`
       );
     }
   }
