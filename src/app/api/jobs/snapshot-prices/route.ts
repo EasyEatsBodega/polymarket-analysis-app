@@ -28,9 +28,21 @@ interface ParsedMarket {
   polymarketUrl: string;
 }
 
+// Response can be either an array (when filtered by tab) or grouped object (all markets)
+type PolymarketData = ParsedMarket[] | Record<string, ParsedMarket[]>;
+
 interface PolymarketApiResponse {
   success: boolean;
-  data: ParsedMarket[];
+  data: PolymarketData;
+}
+
+// Helper to flatten grouped data into array
+function flattenMarkets(data: PolymarketData): ParsedMarket[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  // It's a grouped object - flatten all categories
+  return Object.values(data).flat();
 }
 
 interface SnapshotResult {
@@ -59,7 +71,7 @@ async function snapshotActiveMarketPrices(): Promise<SnapshotResult> {
     return result;
   }
 
-  const markets = data.data;
+  const markets = flattenMarkets(data.data);
   const timestamp = new Date();
 
   for (const market of markets) {
