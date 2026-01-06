@@ -14,8 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PredictEasy - Netflix Intelligence Dashboard",
-  description: "Track Netflix Top 10 rankings, forecasts, and Polymarket signals",
+  title: "PredictEasy - Make Prediction Trading Easier",
+  description: "Track Netflix Top 10 rankings, Polymarket odds, and prediction market signals to make smarter trades.",
+  openGraph: {
+    title: "PredictEasy - Make Prediction Trading Easier",
+    description: "Track Netflix Top 10 rankings, Polymarket odds, and prediction market signals to make smarter trades.",
+    siteName: "PredictEasy",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PredictEasy - Make Prediction Trading Easier",
+    description: "Track Netflix Top 10 rankings, Polymarket odds, and prediction market signals to make smarter trades.",
+  },
 };
 
 export default function RootLayout({
