@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { calculateCategoryConsensus, NomineeConsensus } from "@/lib/consensusCalculator";
+import ConsensusEstimate from "@/components/awards/ConsensusEstimate";
 
 interface OddsData {
   source: string;
@@ -80,14 +82,31 @@ function EdgeBadge({ edge, large = false }: { edge: number; large?: boolean }) {
   );
 }
 
-function NomineeRow({ nominee, rank }: { nominee: NomineeData; rank: number }) {
-  const polymarket = nominee.odds.find(o => o.source === "POLYMARKET");
-  const mybookie = nominee.odds.find(o => o.source === "MYBOOKIE");
+// Order for displaying odds sources
+const SOURCE_ORDER = ["POLYMARKET", "MYBOOKIE", "BOVADA", "GOLDDERBY", "DRAFTKINGS", "BETMGM"];
 
-  // Calculate edge
-  const edge = polymarket && mybookie
-    ? (mybookie.probability - polymarket.probability) * 100
-    : null;
+function NomineeRow({ nominee, rank }: { nominee: NomineeData; rank: number }) {
+  // Sort odds by our preferred order
+  const sortedOdds = [...nominee.odds].sort((a, b) => {
+    const aIdx = SOURCE_ORDER.indexOf(a.source);
+    const bIdx = SOURCE_ORDER.indexOf(b.source);
+    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+  });
+
+  const polymarket = nominee.odds.find(o => o.source === "POLYMARKET");
+
+  // Calculate max edge from all sportsbook sources
+  let maxEdge: number | null = null;
+  if (polymarket) {
+    for (const odds of nominee.odds) {
+      if (odds.source !== "POLYMARKET") {
+        const edge = (odds.probability - polymarket.probability) * 100;
+        if (maxEdge === null || Math.abs(edge) > Math.abs(maxEdge)) {
+          maxEdge = edge;
+        }
+      }
+    }
+  }
 
   return (
     <div className={`p-4 rounded-lg border ${nominee.isWinner ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}`}>
@@ -109,66 +128,76 @@ function NomineeRow({ nominee, rank }: { nominee: NomineeData; rank: number }) {
             Winner
           </span>
         )}
-        {edge !== null && Math.abs(edge) > 1 && (
-          <EdgeBadge edge={edge} large />
+        {maxEdge !== null && Math.abs(maxEdge) > 1 && (
+          <EdgeBadge edge={maxEdge} large />
         )}
       </div>
 
-      {/* Odds comparison bars */}
+      {/* Odds comparison bars - show all available sources */}
       <div className="space-y-2">
-        {polymarket && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium text-gray-500 w-20">Polymarket</span>
-            <OddsBar probability={polymarket.probability} color="bg-purple-500" />
-          </div>
-        )}
-        {mybookie && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium text-gray-500 w-20">MyBookie</span>
-            <OddsBar probability={mybookie.probability} color="bg-blue-500" />
-          </div>
-        )}
-        {!polymarket && !mybookie && (
+        {sortedOdds.map(odds => {
+          const config = SOURCE_CONFIG[odds.source];
+          if (!config) return null;
+          return (
+            <div key={odds.source} className="flex items-center gap-3">
+              <span className="text-xs font-medium text-gray-500 w-20">{config.name}</span>
+              <OddsBar probability={odds.probability} color={config.bgColor} />
+            </div>
+          );
+        })}
+        {sortedOdds.length === 0 && (
           <p className="text-sm text-gray-400 italic">No odds available</p>
         )}
       </div>
 
       {/* Trade links */}
-      <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-        {polymarket?.url && (
-          <a
-            href={polymarket.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
-          >
-            Trade on Polymarket →
-          </a>
-        )}
-        {mybookie?.url && (
-          <a
-            href={mybookie.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-          >
-            Bet on MyBookie →
-          </a>
-        )}
+      <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-100">
+        {sortedOdds.map(odds => {
+          if (!odds.url) return null;
+          const config = SOURCE_CONFIG[odds.source];
+          if (!config) return null;
+          return (
+            <a
+              key={odds.source}
+              href={odds.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`text-xs ${config.color} hover:opacity-80 font-medium`}
+            >
+              {odds.source === "POLYMARKET" ? "Trade on" : "Bet on"} {config.name} →
+            </a>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 function EdgeHighlights({ nominees }: { nominees: NomineeData[] }) {
-  // Find nominees with significant edges
+  // Find nominees with significant edges from ANY sportsbook source
   const edgeNominees = nominees
     .map(n => {
       const pm = n.odds.find(o => o.source === "POLYMARKET");
-      const mb = n.odds.find(o => o.source === "MYBOOKIE");
-      if (!pm || !mb) return null;
-      const edge = (mb.probability - pm.probability) * 100;
-      return { ...n, edge, pmOdds: pm.probability, mbOdds: mb.probability };
+      if (!pm) return null;
+
+      // Find the biggest edge from any other source
+      let maxEdge = 0;
+      let edgeSourceName = "";
+      let otherOdds = 0;
+
+      for (const odds of n.odds) {
+        if (odds.source !== "POLYMARKET") {
+          const edge = (odds.probability - pm.probability) * 100;
+          if (Math.abs(edge) > Math.abs(maxEdge)) {
+            maxEdge = edge;
+            edgeSourceName = SOURCE_CONFIG[odds.source]?.name || odds.source;
+            otherOdds = odds.probability;
+          }
+        }
+      }
+
+      if (maxEdge === 0) return null;
+      return { ...n, edge: maxEdge, pmOdds: pm.probability, otherOdds, edgeSourceName };
     })
     .filter((n): n is NonNullable<typeof n> => n !== null && Math.abs(n.edge) > 2)
     .sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge));
@@ -189,7 +218,7 @@ function EdgeHighlights({ nominees }: { nominees: NomineeData[] }) {
             <div>
               <p className="font-medium text-gunmetal">{n.name}</p>
               <p className="text-sm text-gray-500">
-                PM: {(n.pmOdds * 100).toFixed(0)}% → MB: {(n.mbOdds * 100).toFixed(0)}%
+                PM: {(n.pmOdds * 100).toFixed(0)}% vs {n.edgeSourceName}: {(n.otherOdds * 100).toFixed(0)}%
               </p>
             </div>
             <EdgeBadge edge={n.edge} large />
@@ -198,7 +227,7 @@ function EdgeHighlights({ nominees }: { nominees: NomineeData[] }) {
       </div>
       <p className="text-xs text-gray-500 mt-3">
         {edgeNominees[0].edge > 0
-          ? "Positive edge = MyBookie has higher odds (potential value on Polymarket NO)"
+          ? "Positive edge = Sportsbooks have higher odds (potential value on Polymarket NO)"
           : "Negative edge = Polymarket has higher odds (potential value on Polymarket YES)"}
       </p>
     </div>
@@ -245,6 +274,15 @@ export default function CategoryDetailPage() {
 
     fetchData();
   }, [showSlug, categorySlug]);
+
+  // Calculate consensus for all nominees, sorted by consensus probability
+  const nomineesWithConsensus = useMemo(() => {
+    if (!category) return [];
+    return calculateCategoryConsensus(category.nominees);
+  }, [category]);
+
+  // Get the leader (highest consensus probability)
+  const leader = nomineesWithConsensus[0] || null;
 
   if (loading) {
     return (
@@ -298,19 +336,35 @@ export default function CategoryDetailPage() {
 
       {/* Content */}
       <div className="container mx-auto px-4 py-8">
+        {/* PredictEasy Consensus Estimate */}
+        {leader && (
+          <div className="mb-6">
+            <ConsensusEstimate
+              nomineeName={leader.name}
+              subtitle={leader.subtitle}
+              consensus={leader.consensus}
+            />
+          </div>
+        )}
+
         {/* Edge Highlights */}
         <EdgeHighlights nominees={category.nominees} />
 
-        {/* Legend */}
+        {/* Legend - dynamically show sources present in this category */}
         <div className="flex flex-wrap gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-purple-500"></div>
-            <span className="text-sm text-gray-600">Polymarket</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-blue-500"></div>
-            <span className="text-sm text-gray-600">MyBookie</span>
-          </div>
+          {SOURCE_ORDER.map(source => {
+            // Check if any nominee has this source
+            const hasSource = category.nominees.some(n => n.odds.some(o => o.source === source));
+            if (!hasSource) return null;
+            const config = SOURCE_CONFIG[source];
+            if (!config) return null;
+            return (
+              <div key={source} className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded ${config.bgColor}`}></div>
+                <span className="text-sm text-gray-600">{config.name}</span>
+              </div>
+            );
+          })}
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-xs text-gray-400">
               {category.nominees.length} nominees
@@ -318,9 +372,12 @@ export default function CategoryDetailPage() {
           </div>
         </div>
 
-        {/* Nominees Grid */}
+        {/* All Nominees Section Header */}
+        <h2 className="text-lg font-semibold text-gunmetal mb-4">All Nominees</h2>
+
+        {/* Nominees Grid - sorted by consensus */}
         <div className="grid gap-4">
-          {category.nominees.map((nominee, index) => (
+          {nomineesWithConsensus.map((nominee, index) => (
             <NomineeRow key={nominee.id} nominee={nominee} rank={index + 1} />
           ))}
         </div>
