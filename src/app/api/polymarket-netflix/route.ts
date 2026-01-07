@@ -32,14 +32,17 @@ const MARKET_PATTERNS = [
   { basePattern: 'what-will-be-the-2-global-netflix-movie-this-week', category: 'films-non-english', rank: 2, label: '#2 Global Movie' },
 ];
 
-// Known recent event IDs to try first (discovered from Polymarket search)
-// Format: { pattern-keyword: [ids] } - these are tried before scanning the full range
-// Add new IDs at the START of this array as they are discovered
-const KNOWN_RECENT_IDS = [486, 872, 835, 812, 756, 748, 592, 237, 125];
-
-// Fallback range if known IDs don't work (only used if all known IDs fail)
-const ID_RANGE_START = 100;
-const ID_RANGE_END = 950;
+// Auto-discovery settings - category-aware ID ranges for faster scanning
+// Market IDs vary by category based on observed patterns:
+// - Shows: IDs tend to be in 400-600 range (e.g., 486)
+// - Movies: IDs tend to be in 700-950 range (e.g., 872)
+// We check hot ranges first, then expand if needed
+const HOT_RANGES: Record<string, { start: number; end: number }> = {
+  'shows': { start: 480, end: 600 },  // Shows tend to use lower IDs
+  'movies': { start: 850, end: 950 }, // Movies tend to use higher IDs
+};
+const EXTENDED_RANGE = { start: 400, end: 1000 }; // Fallback full range
+const SCAN_BATCH_SIZE = 30; // Check 30 IDs in parallel per batch
 
 interface PolymarketMarket {
   id: string;
@@ -113,62 +116,19 @@ async function fetchEventBySlug(slug: string): Promise<PolymarketEvent | null> {
   }
 }
 
-async function findActiveMarketId(basePattern: string): Promise<number | null> {
-  // Check cache first
-  const cached = marketIdCache.get(basePattern);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.id;
-  }
+async function scanRange(
+  basePattern: string,
+  rangeStart: number,
+  rangeEnd: number
+): Promise<{ id: number; closed: boolean } | null> {
+  const foundMarkets: { id: number; closed: boolean }[] = [];
 
-  // Try known recent IDs FIRST (these are more likely to be current week's markets)
-  // Check all known IDs in parallel and prefer active (non-closed) markets
-  const knownResults = await Promise.all(
-    KNOWN_RECENT_IDS.map(async (id) => {
-      const slug = `${basePattern}-${id}`;
-      const event = await fetchEventBySlug(slug);
-      return event ? { id, event } : null;
-    })
-  );
-
-  // Find active (non-closed) market first
-  const activeMarket = knownResults.find(r => r !== null && !r.event.closed);
-  if (activeMarket) {
-    marketIdCache.set(basePattern, { id: activeMarket.id, timestamp: Date.now() });
-    return activeMarket.id;
-  }
-
-  // If no active market, try without suffix (might be the current format)
-  const eventNoSuffix = await fetchEventBySlug(basePattern);
-  if (eventNoSuffix && !eventNoSuffix.closed) {
-    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
-    return 0;
-  }
-
-  // Fall back to any closed market from known IDs (still has valid historical data)
-  const closedMarket = knownResults.find(r => r !== null);
-  if (closedMarket) {
-    marketIdCache.set(basePattern, { id: closedMarket.id, timestamp: Date.now() });
-    return closedMarket.id;
-  }
-
-  // Fall back to closed no-suffix market
-  if (eventNoSuffix) {
-    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
-    return 0;
-  }
-
-  // Fallback: scan broader range in batches (only if known IDs failed)
-  // Start from high and go low, checking newer markets first
-  for (let start = ID_RANGE_END; start >= ID_RANGE_START; start -= 50) {
+  // Scan from high to low (newer markets have higher IDs)
+  for (let start = rangeEnd; start >= rangeStart; start -= SCAN_BATCH_SIZE) {
     const batch: number[] = [];
-    for (let id = start; id > Math.max(start - 50, ID_RANGE_START - 1); id--) {
-      // Skip IDs we already tried
-      if (!KNOWN_RECENT_IDS.includes(id)) {
-        batch.push(id);
-      }
+    for (let id = start; id > Math.max(start - SCAN_BATCH_SIZE, rangeStart - 1); id--) {
+      batch.push(id);
     }
-
-    if (batch.length === 0) continue;
 
     const results = await Promise.all(
       batch.map(async (id) => {
@@ -178,19 +138,89 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
       })
     );
 
-    // Prefer active market
-    const activeResult = results.find(r => r !== null && !r.event.closed);
-    if (activeResult) {
-      marketIdCache.set(basePattern, { id: activeResult.id, timestamp: Date.now() });
-      return activeResult.id;
-    }
+    for (const result of results) {
+      if (result) {
+        foundMarkets.push({ id: result.id, closed: result.event.closed });
 
-    // Fall back to closed
-    const anyResult = results.find(r => r !== null);
-    if (anyResult) {
-      marketIdCache.set(basePattern, { id: anyResult.id, timestamp: Date.now() });
-      return anyResult.id;
+        // If we found an ACTIVE market, return immediately
+        if (!result.event.closed) {
+          return { id: result.id, closed: false };
+        }
+      }
     }
+  }
+
+  // Return most recent closed market if no active found
+  if (foundMarkets.length > 0) {
+    foundMarkets.sort((a, b) => b.id - a.id);
+    return foundMarkets[0];
+  }
+
+  return null;
+}
+
+async function findActiveMarketId(basePattern: string): Promise<number | null> {
+  // Check cache first
+  const cached = marketIdCache.get(basePattern);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.id;
+  }
+
+  // Try without suffix first (might be a market without ID suffix)
+  const eventNoSuffix = await fetchEventBySlug(basePattern);
+  if (eventNoSuffix && !eventNoSuffix.closed) {
+    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
+    return 0;
+  }
+
+  // Determine category from pattern (shows vs movies)
+  const isMovie = basePattern.includes('movie');
+  const hotRange = isMovie ? HOT_RANGES['movies'] : HOT_RANGES['shows'];
+
+  // Step 1: Check hot range first (most likely to find current week's market)
+  const hotResult = await scanRange(basePattern, hotRange.start, hotRange.end);
+  if (hotResult && !hotResult.closed) {
+    marketIdCache.set(basePattern, { id: hotResult.id, timestamp: Date.now() });
+    return hotResult.id;
+  }
+
+  // Step 2: If no active found in hot range, check extended range
+  // Skip the hot range we already checked
+  let extendedResult: { id: number; closed: boolean } | null = null;
+
+  // Check below hot range
+  if (hotRange.start > EXTENDED_RANGE.start) {
+    extendedResult = await scanRange(basePattern, EXTENDED_RANGE.start, hotRange.start - 1);
+    if (extendedResult && !extendedResult.closed) {
+      marketIdCache.set(basePattern, { id: extendedResult.id, timestamp: Date.now() });
+      return extendedResult.id;
+    }
+  }
+
+  // Check above hot range
+  if (hotRange.end < EXTENDED_RANGE.end) {
+    const aboveResult = await scanRange(basePattern, hotRange.end + 1, EXTENDED_RANGE.end);
+    if (aboveResult && !aboveResult.closed) {
+      marketIdCache.set(basePattern, { id: aboveResult.id, timestamp: Date.now() });
+      return aboveResult.id;
+    }
+    // Keep track of best closed market
+    if (aboveResult && (!extendedResult || aboveResult.id > extendedResult.id)) {
+      extendedResult = aboveResult;
+    }
+  }
+
+  // No active market found - use best closed market
+  const bestClosed = hotResult || extendedResult;
+  if (bestClosed) {
+    marketIdCache.set(basePattern, { id: bestClosed.id, timestamp: Date.now() });
+    return bestClosed.id;
+  }
+
+  // Fall back to no-suffix market even if closed
+  if (eventNoSuffix) {
+    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
+    return 0;
   }
 
   return null;
