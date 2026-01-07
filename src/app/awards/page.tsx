@@ -207,6 +207,7 @@ export default function AwardsPage() {
                             key={category.id}
                             name={category.name}
                             slug={category.slug}
+                            showSlug={show.slug}
                             polymarketUrl={category.polymarketUrl}
                             isClosed={category.isClosed}
                             leader={category.leader}
@@ -232,6 +233,7 @@ export default function AwardsPage() {
                             key={category.id}
                             name={category.name}
                             slug={category.slug}
+                            showSlug={show.slug}
                             polymarketUrl={category.polymarketUrl}
                             isClosed={category.isClosed}
                             leader={category.leader}
