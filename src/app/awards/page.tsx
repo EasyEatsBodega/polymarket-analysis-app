@@ -218,31 +218,6 @@ export default function AwardsPage() {
                   </section>
                 )}
 
-                {/* Resolved Markets Section */}
-                {show.categories.some((c) => c.isClosed) && (
-                  <section>
-                    <h2 className="text-lg font-semibold text-gunmetal mb-4 flex items-center gap-2">
-                      <span className="w-2 h-2 bg-gray-400 rounded-full" />
-                      Resolved Markets
-                    </h2>
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {show.categories
-                        .filter((c) => c.isClosed)
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            name={category.name}
-                            slug={category.slug}
-                            showSlug={show.slug}
-                            polymarketUrl={category.polymarketUrl}
-                            isClosed={category.isClosed}
-                            leader={category.leader}
-                            nominees={category.nominees}
-                          />
-                        ))}
-                    </div>
-                  </section>
-                )}
               </main>
             </div>
           ))}
