@@ -3,6 +3,8 @@
  *
  * Discovers and syncs Golden Globes (and other award) markets from Polymarket.
  * Creates/updates AwardShow, AwardCategory, AwardNominee, and AwardOdds records.
+ *
+ * Now auto-discovers ALL markets with "golden-globes" in the slug.
  */
 
 import prisma from '@/lib/prisma';
@@ -32,57 +34,94 @@ interface PolymarketEvent {
   endDate?: string;
 }
 
+// Known Golden Globes market slugs (scraped from Polymarket)
+const GOLDEN_GLOBES_SLUGS = [
+  'golden-globes-best-actor-drama-winner',
+  'golden-globes-best-actor-musical-or-comedy-winner',
+  'golden-globes-best-actor-television-musical-or-comedy-winner',
+  'golden-globes-best-actress-limited-series-winner',
+  'golden-globes-best-actress-television-drama-winner',
+  'golden-globes-best-director-winner',
+  'golden-globes-best-motion-picture-animated-winner',
+  'golden-globes-best-motion-picture-drama-winner',
+  'golden-globes-best-motion-picture-musical-or-comedy-winner',
+  'golden-globes-best-motion-picture-non-english-language-winner',
+  'golden-globes-best-original-song-motion-picture-winner',
+  'golden-globes-best-performance-in-stand-up-comedy-on-television-winner',
+  'golden-globes-best-screenplay-motion-picture-winner',
+  'golden-globes-best-supporting-actor-motion-picture-winner',
+  'golden-globes-best-supporting-actor-television-winner',
+  'golden-globes-best-supporting-actress-motion-picture-winner',
+  'golden-globes-best-supporting-actress-television-winner',
+  'golden-globes-best-television-series-comedy-or-musical-winner',
+  'golden-globes-best-television-series-drama-winner',
+  'golden-globes-cinematic-and-box-office-achievement-winner',
+  // Additional categories that may exist
+  'golden-globes-best-actress-drama-winner',
+  'golden-globes-best-actress-musical-or-comedy-winner',
+  'golden-globes-best-actor-limited-series-winner',
+  'golden-globes-best-actor-television-drama-winner',
+  'golden-globes-best-actress-television-musical-or-comedy-winner',
+  'golden-globes-best-limited-series-winner',
+  'golden-globes-best-original-score-winner',
+];
+
 // Award show configurations
 const AWARD_SHOWS = [
   {
     name: 'Golden Globes 2026',
     slug: 'golden-globes-2026',
     ceremonyDate: new Date('2026-01-05'),
-    slugPrefix: 'golden-globes-',
-    categoryPatterns: [
-      { slug: 'golden-globes-best-director-winner', name: 'Best Director' },
-      { slug: 'golden-globes-best-podcast-winner', name: 'Best Podcast' },
-      { slug: 'golden-globes-cinematic-and-box-office-achievement-winner', name: 'Cinematic and Box Office Achievement' },
-      { slug: 'golden-globes-best-actor-drama', name: 'Best Actor - Drama' },
-      { slug: 'golden-globes-best-actress-drama', name: 'Best Actress - Drama' },
-      { slug: 'golden-globes-best-motion-picture-drama', name: 'Best Motion Picture - Drama' },
-      { slug: 'golden-globes-best-motion-picture-musical-or-comedy', name: 'Best Motion Picture - Musical or Comedy' },
-      { slug: 'golden-globes-best-motion-picture-animated', name: 'Best Motion Picture - Animated' },
-      { slug: 'golden-globes-best-motion-picture-non-english-language', name: 'Best Motion Picture - Non-English Language' },
-      { slug: 'golden-globes-best-actor-musical-or-comedy', name: 'Best Actor - Musical or Comedy' },
-      { slug: 'golden-globes-best-actress-musical-or-comedy', name: 'Best Actress - Musical or Comedy' },
-      { slug: 'golden-globes-best-supporting-actor-motion-picture', name: 'Best Supporting Actor - Motion Picture' },
-      { slug: 'golden-globes-best-supporting-actress-motion-picture', name: 'Best Supporting Actress - Motion Picture' },
-      { slug: 'golden-globes-best-screenplay-motion-picture', name: 'Best Screenplay - Motion Picture' },
-      { slug: 'golden-globes-best-original-song', name: 'Best Original Song' },
-      { slug: 'golden-globes-best-original-score', name: 'Best Original Score' },
-      { slug: 'golden-globes-best-television-series-drama', name: 'Best Television Series - Drama' },
-      { slug: 'golden-globes-best-television-series-comedy-musical', name: 'Best Television Series - Comedy/Musical' },
-      { slug: 'golden-globes-best-television-limited-series', name: 'Best Television Limited Series' },
-      { slug: 'golden-globes-best-actor-television-drama', name: 'Best Actor - Television Drama' },
-      { slug: 'golden-globes-best-actress-television-drama', name: 'Best Actress - Television Drama' },
-      { slug: 'golden-globes-best-actor-television-limited-series', name: 'Best Actor - Television Limited Series' },
-      { slug: 'golden-globes-best-actress-television-limited-series', name: 'Best Actress - Television Limited Series' },
-      { slug: 'golden-globes-best-supporting-actor-television', name: 'Best Supporting Actor - Television' },
-      { slug: 'golden-globes-best-supporting-actress-television', name: 'Best Supporting Actress - Television' },
-    ],
+    marketSlugs: GOLDEN_GLOBES_SLUGS,
   },
 ];
 
-async function fetchEvent(slug: string): Promise<PolymarketEvent | null> {
-  try {
-    const response = await fetch(`${GAMMA_API}/events?slug=${encodeURIComponent(slug)}`, {
-      headers: { 'Accept': 'application/json' },
-    });
+/**
+ * Fetch events by their exact slugs
+ */
+async function fetchEventsBySlugs(slugs: string[]): Promise<PolymarketEvent[]> {
+  const events: PolymarketEvent[] = [];
 
-    if (!response.ok) return null;
+  for (const slug of slugs) {
+    try {
+      const response = await fetch(
+        `${GAMMA_API}/events?slug=${encodeURIComponent(slug)}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
 
-    const events: PolymarketEvent[] = await response.json();
-    return events.length > 0 ? events[0] : null;
-  } catch (error) {
-    console.error(`Error fetching ${slug}:`, error);
-    return null;
+      if (!response.ok) {
+        console.log(`    ⚠️ Failed to fetch ${slug}: ${response.status}`);
+        continue;
+      }
+
+      const data: PolymarketEvent[] = await response.json();
+      if (data.length > 0) {
+        events.push(data[0]);
+      }
+
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 100));
+    } catch (error) {
+      console.error(`Error fetching ${slug}:`, error);
+    }
   }
+
+  console.log(`  Found ${events.length}/${slugs.length} events`);
+  return events;
+}
+
+/**
+ * Extract category name from event title
+ * e.g., "Golden Globes: Best Actor - Drama Winner" -> "Best Actor - Drama"
+ */
+function extractCategoryName(title: string): string {
+  // Remove "Golden Globes: " prefix and " Winner" suffix
+  let name = title
+    .replace(/^Golden Globes:\s*/i, '')
+    .replace(/\s*Winner$/i, '')
+    .trim();
+
+  return name || title;
 }
 
 function parseNominees(event: PolymarketEvent): Array<{ name: string; subtitle: string | null; probability: number; volume: number }> {
@@ -166,17 +205,17 @@ export async function ingestAwardsPolymarket(): Promise<AwardsIngestionResult> {
 
     result.showsProcessed++;
 
-    // Process each category pattern
-    for (let i = 0; i < showConfig.categoryPatterns.length; i++) {
-      const pattern = showConfig.categoryPatterns[i];
-      console.log(`  Checking ${pattern.name}...`);
+    // Fetch all events by their known slugs
+    const events = await fetchEventsBySlugs(showConfig.marketSlugs);
+    console.log(`  Fetched ${events.length} markets for ${showConfig.name}`);
 
-      const event = await fetchEvent(pattern.slug);
+    // Process each discovered event as a category
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
 
-      if (!event) {
-        console.log(`    ❌ Not found on Polymarket`);
-        continue;
-      }
+      // Extract category name from title
+      const categoryName = extractCategoryName(event.title);
+      console.log(`  Processing: ${categoryName}...`);
 
       result.categoriesFound++;
 
@@ -187,7 +226,7 @@ export async function ingestAwardsPolymarket(): Promise<AwardsIngestionResult> {
       }
 
       // Upsert category
-      const categorySlug = slugify(pattern.name);
+      const categorySlug = slugify(categoryName);
       const category = await prisma.awardCategory.upsert({
         where: {
           showId_slug: {
@@ -197,20 +236,20 @@ export async function ingestAwardsPolymarket(): Promise<AwardsIngestionResult> {
         },
         create: {
           showId: show.id,
-          name: pattern.name,
+          name: categoryName,
           slug: categorySlug,
-          polymarketSlug: pattern.slug,
+          polymarketSlug: event.slug,
           polymarketUrl: `https://polymarket.com/event/${event.slug}`,
           displayOrder: i,
         },
         update: {
-          polymarketSlug: pattern.slug,
+          polymarketSlug: event.slug,
           polymarketUrl: `https://polymarket.com/event/${event.slug}`,
         },
       });
 
       result.categoriesCreated++;
-      console.log(`    ✅ ${pattern.name} (${nominees.length} nominees, ${event.closed ? 'CLOSED' : 'OPEN'})`);
+      console.log(`    ✅ ${categoryName} (${nominees.length} nominees, ${event.closed ? 'CLOSED' : 'OPEN'})`);
 
       // Process nominees
       for (const nomineeData of nominees) {
@@ -278,8 +317,8 @@ export async function ingestAwardsPolymarket(): Promise<AwardsIngestionResult> {
         });
       }
 
-      // Rate limit
-      await new Promise(r => setTimeout(r, 300));
+      // Rate limit between categories
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 
