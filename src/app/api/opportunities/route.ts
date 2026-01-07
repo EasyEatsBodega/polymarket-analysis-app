@@ -353,8 +353,57 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 7. Sort results
-    opportunities.sort((a, b) => {
+    // 7. Deduplicate predicted ranks
+    // Multiple titles can have the same forecastP50, but rankings should be unique
+    // Use momentum score as tiebreaker, then assign unique ranks
+    const deduplicatePredictedRanks = (items: OpportunityResponse[]): OpportunityResponse[] => {
+      // Only process items that have forecasts
+      const withForecasts = items.filter(o => o.forecastP50 !== null);
+      const withoutForecasts = items.filter(o => o.forecastP50 === null);
+
+      if (withForecasts.length === 0) return items;
+
+      // Sort by forecastP50, then by tiebreakers (higher momentum = better/lower rank)
+      withForecasts.sort((a, b) => {
+        // Primary: forecast p50 (lower is better)
+        const p50Diff = (a.forecastP50 ?? 99) - (b.forecastP50 ?? 99);
+        if (p50Diff !== 0) return p50Diff;
+
+        // Tiebreaker 1: momentum score (higher is better, so reverse)
+        const momentumDiff = (b.momentumScore ?? 0) - (a.momentumScore ?? 0);
+        if (momentumDiff !== 0) return momentumDiff;
+
+        // Tiebreaker 2: model probability (higher is better, so reverse)
+        const probDiff = (b.modelProbability ?? 0) - (a.modelProbability ?? 0);
+        if (probDiff !== 0) return probDiff;
+
+        // Tiebreaker 3: current rank (lower is better)
+        return (a.currentRank ?? 99) - (b.currentRank ?? 99);
+      });
+
+      // Assign unique predicted ranks (1, 2, 3, ...)
+      // Keep p10/p90 relative to the new p50
+      withForecasts.forEach((item, index) => {
+        const newP50 = index + 1;
+        const oldP50 = item.forecastP50 ?? newP50;
+        const offset = newP50 - oldP50;
+
+        item.forecastP50 = newP50;
+        if (item.forecastP10 !== null) {
+          item.forecastP10 = Math.max(1, item.forecastP10 + offset);
+        }
+        if (item.forecastP90 !== null) {
+          item.forecastP90 = Math.min(10, item.forecastP90 + offset);
+        }
+      });
+
+      return [...withForecasts, ...withoutForecasts];
+    };
+
+    const deduplicatedOpportunities = deduplicatePredictedRanks(opportunities);
+
+    // 8. Sort results
+    deduplicatedOpportunities.sort((a, b) => {
       switch (sortBy) {
         case "edge":
           return Math.abs(b.edgePercent ?? 0) - Math.abs(a.edgePercent ?? 0);
@@ -367,7 +416,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Apply limit
-    const limitedResults = opportunities.slice(0, limit);
+    const limitedResults = deduplicatedOpportunities.slice(0, limit);
 
     // Calculate meta stats
     const buyCount = limitedResults.filter((o) => o.signal === "BUY").length;
