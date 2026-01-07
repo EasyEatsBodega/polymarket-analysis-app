@@ -132,6 +132,16 @@ export function matchOutcomeToTitle(
       };
     }
 
+    // Check if Netflix title starts with Polymarket outcome (e.g., "Wake Up Dead Man" -> "Wake Up Dead Man: A Knives Out Mystery")
+    if (normalizedTitle.startsWith(normalizedOutcome) && normalizedOutcome.length >= 10) {
+      return {
+        outcomeName,
+        matchedTitleId: title.id,
+        matchedTitleName: title.canonicalName,
+        matchConfidence: 'exact',
+      };
+    }
+
     // Check aliases
     if (title.aliases) {
       for (const alias of title.aliases) {

@@ -100,8 +100,9 @@ async function fetchEventBySlug(slug: string): Promise<PolymarketEvent | null> {
 
     const event = events[0];
 
-    // Only return if active and has markets
-    if (event.active && !event.closed && event.markets?.length > 0) {
+    // Return if has markets (allow closed markets - they still have valid data until resolved)
+    // Netflix markets close on Tuesdays when betting ends but data is still relevant
+    if (event.markets?.length > 0) {
       return event;
     }
 
@@ -118,7 +119,14 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
     return cached.id;
   }
 
-  // First, try known recent IDs (fast path)
+  // Try without a number suffix FIRST (most markets now use this format)
+  const eventNoSuffix = await fetchEventBySlug(basePattern);
+  if (eventNoSuffix) {
+    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
+    return 0;
+  }
+
+  // Fallback: try known recent IDs
   const knownResults = await Promise.all(
     KNOWN_RECENT_IDS.map(async (id) => {
       const slug = `${basePattern}-${id}`;
@@ -131,13 +139,6 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
   if (foundKnownId) {
     marketIdCache.set(basePattern, { id: foundKnownId, timestamp: Date.now() });
     return foundKnownId;
-  }
-
-  // Also try without a number suffix
-  const eventNoSuffix = await fetchEventBySlug(basePattern);
-  if (eventNoSuffix) {
-    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
-    return 0;
   }
 
   // Fallback: scan broader range in batches (only if known IDs failed)

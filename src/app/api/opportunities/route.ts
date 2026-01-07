@@ -20,6 +20,14 @@ export const dynamic = "force-dynamic";
 type Signal = "BUY" | "HOLD" | "AVOID";
 type SignalStrength = "strong" | "moderate" | "weak";
 
+// Map tab IDs to Netflix category names
+const categoryMap: Record<string, string> = {
+  "shows-english": "TV (English)",
+  "shows-non-english": "TV (Non-English)",
+  "films-english": "Films (English)",
+  "films-non-english": "Films (Non-English)",
+};
+
 interface MomentumBreakdown {
   trendsRaw: number | null;
   wikipediaRaw: number | null;
@@ -102,11 +110,14 @@ export async function GET(request: NextRequest) {
 
     // Parse query parameters
     const type = searchParams.get("type") as TitleType | null;
-    const category = searchParams.get("category");
+    const categoryParam = searchParams.get("category");
     const minEdge = parseFloat(searchParams.get("minEdge") || "0");
     const opportunitiesOnly = searchParams.get("opportunitiesOnly") === "true";
     const sortBy = searchParams.get("sort") || "rank";
     const limit = Math.min(parseInt(searchParams.get("limit") || "10"), 50);
+
+    // Map category param to Netflix category name
+    const netflixCategory = categoryParam ? categoryMap[categoryParam] : null;
 
     // 1. Get the most recent week with data
     const latestWeek = await prisma.netflixWeeklyGlobal.findFirst({
@@ -128,12 +139,13 @@ export async function GET(request: NextRequest) {
     previousWeekStart.setDate(previousWeekStart.getDate() - 7);
 
     // 2. Fetch current week Netflix rankings
-    const whereClause = type ? { type } : {};
+    const titleWhereClause = type ? { type } : {};
 
     const currentWeekData = await prisma.netflixWeeklyGlobal.findMany({
       where: {
         weekStart,
-        title: whereClause,
+        title: titleWhereClause,
+        ...(netflixCategory && { category: netflixCategory }),
       },
       select: {
         titleId: true,
@@ -194,20 +206,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Fetch Polymarket data
+    // 5. Fetch Polymarket data - fetch ALL markets (not filtered by category)
+    // because Polymarket's "Global" markets include titles from all Netflix language categories
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     let polymarketData: { outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
 
     try {
-      const polyUrl = category
-        ? `${baseUrl}/api/polymarket-netflix?tab=${category}`
-        : `${baseUrl}/api/polymarket-netflix`;
-
+      // Fetch all markets without category filter
+      const polyUrl = `${baseUrl}/api/polymarket-netflix`;
       const polyResponse = await fetch(polyUrl, { next: { revalidate: 60 } });
       const polyJson = await polyResponse.json();
 
       if (polyJson.success) {
-        // Flatten if grouped
+        // Flatten all categories
         const markets = Array.isArray(polyJson.data)
           ? polyJson.data
           : Object.values(polyJson.data).flat();
@@ -217,8 +228,15 @@ export async function GET(request: NextRequest) {
       // Polymarket fetch failed - continue without market data
     }
 
-    // Build market probability map
-    const titleCache = buildTitleCache(titles);
+    // 5b. Fetch ALL titles from database for market matching
+    // (not just titles in the filtered category, since Polymarket markets span categories)
+    const allTitles = await prisma.title.findMany({
+      select: { id: true, canonicalName: true, type: true, aliases: true },
+      cacheStrategy: { ttl: 300 },
+    });
+
+    // Build market probability map using ALL titles
+    const titleCache = buildTitleCache(allTitles);
     const marketDataMap = new Map<
       string,
       { probability: number; polymarketUrl: string }

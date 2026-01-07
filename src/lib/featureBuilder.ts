@@ -243,6 +243,7 @@ export function calculateAccelerationScore(
 
 /**
  * Get average signal value for a date range
+ * If no data found in the date range, finds the most recent data available
  */
 async function getAverageSignal(
   titleId: string,
@@ -251,6 +252,7 @@ async function getAverageSignal(
   startDate: Date,
   endDate: Date
 ): Promise<number | null> {
+  // First try the specified date range
   const result = await prisma.dailySignal.aggregate({
     where: {
       titleId,
@@ -261,7 +263,30 @@ async function getAverageSignal(
     _avg: { value: true },
   });
 
-  return result._avg.value;
+  if (result._avg.value !== null) {
+    return result._avg.value;
+  }
+
+  // If no data in the expected range, find most recent signals for this title
+  // This handles cases where signal data is from a different time period
+  const recentSignals = await prisma.dailySignal.findMany({
+    where: {
+      titleId,
+      source,
+      geo,
+    },
+    orderBy: { date: 'desc' },
+    take: 7, // Get up to 7 most recent signals
+    select: { value: true },
+  });
+
+  if (recentSignals.length === 0) {
+    return null;
+  }
+
+  // Calculate average of most recent signals
+  const sum = recentSignals.reduce((acc, s) => acc + s.value, 0);
+  return sum / recentSignals.length;
 }
 
 /**
@@ -280,7 +305,7 @@ export async function buildTitleFeatures(
 
   if (!title) return null;
 
-  // Calculate date ranges
+  // Calculate date ranges for Netflix data
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
 
@@ -288,6 +313,18 @@ export async function buildTitleFeatures(
   previousWeekStart.setDate(previousWeekStart.getDate() - 7);
   const previousWeekEnd = new Date(weekStart);
   previousWeekEnd.setDate(previousWeekEnd.getDate() - 1);
+
+  // For signals, use recent data (last 7 days from today) rather than week-specific
+  // This ensures we have current signal data even if Netflix week hasn't started yet
+  const today = new Date();
+  const signalEndDate = today;
+  const signalStartDate = new Date(today);
+  signalStartDate.setDate(signalStartDate.getDate() - 7);
+
+  const prevSignalEndDate = new Date(signalStartDate);
+  prevSignalEndDate.setDate(prevSignalEndDate.getDate() - 1);
+  const prevSignalStartDate = new Date(prevSignalEndDate);
+  prevSignalStartDate.setDate(prevSignalStartDate.getDate() - 7);
 
   // Get current week Netflix data
   const currentGlobal = await prisma.netflixWeeklyGlobal.findFirst({
@@ -311,14 +348,14 @@ export async function buildTitleFeatures(
     orderBy: { rank: 'asc' },
   });
 
-  // Get signal averages for current week
-  const trendsUS = await getAverageSignal(titleId, 'TRENDS', 'US', weekStart, weekEnd);
-  const trendsGlobal = await getAverageSignal(titleId, 'TRENDS', 'GLOBAL', weekStart, weekEnd);
-  const wikipediaViews = await getAverageSignal(titleId, 'WIKIPEDIA', 'GLOBAL', weekStart, weekEnd);
+  // Get signal averages for recent period (last 7 days)
+  const trendsUS = await getAverageSignal(titleId, 'TRENDS', 'US', signalStartDate, signalEndDate);
+  const trendsGlobal = await getAverageSignal(titleId, 'TRENDS', 'GLOBAL', signalStartDate, signalEndDate);
+  const wikipediaViews = await getAverageSignal(titleId, 'WIKIPEDIA', 'GLOBAL', signalStartDate, signalEndDate);
 
-  // Get signal averages for previous week
-  const prevTrendsGlobal = await getAverageSignal(titleId, 'TRENDS', 'GLOBAL', previousWeekStart, previousWeekEnd);
-  const prevWikipediaViews = await getAverageSignal(titleId, 'WIKIPEDIA', 'GLOBAL', previousWeekStart, previousWeekEnd);
+  // Get signal averages for previous period
+  const prevTrendsGlobal = await getAverageSignal(titleId, 'TRENDS', 'GLOBAL', prevSignalStartDate, prevSignalEndDate);
+  const prevWikipediaViews = await getAverageSignal(titleId, 'WIKIPEDIA', 'GLOBAL', prevSignalStartDate, prevSignalEndDate);
 
   // Calculate deltas
   const globalRankDelta = calculateRankDelta(currentGlobal?.rank ?? null, previousGlobal?.rank ?? null);

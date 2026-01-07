@@ -130,28 +130,34 @@ async function fetchGoogleTrends(
 }
 
 /**
- * Fetch Wikipedia pageviews for a title
- * Returns the daily pageview count
+ * Fetch Wikipedia pageviews for a title over a date range
+ * Returns array of {date, views} for each day with data
+ * Wikipedia API has ~2-day data lag, so we fetch a 7-day range
  */
-async function fetchWikipediaViews(
+async function fetchWikipediaViewsRange(
   titleName: string,
-  date: Date
-): Promise<number | null> {
+  endDate: Date
+): Promise<{ date: Date; views: number }[]> {
   try {
     // Format the title for Wikipedia API (replace spaces with underscores)
     const articleTitle = titleName
       .replace(/\s+/g, '_')
       .replace(/['"]/g, ''); // Remove quotes
 
-    // Format date for Wikipedia API (YYYYMMDD)
-    const dateStr = date.toISOString().split('T')[0].replace(/-/g, '');
+    // Calculate date range (7 days ending at endDate)
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 7);
+
+    // Format dates for Wikipedia API (YYYYMMDD)
+    const startStr = startDate.toISOString().split('T')[0].replace(/-/g, '');
+    const endStr = endDate.toISOString().split('T')[0].replace(/-/g, '');
 
     // Try both TV series and film article formats
-    const suffixes = ['', '_(TV_series)', '_(film)', '_(miniseries)'];
+    const suffixes = ['', '_(TV_series)', '_(film)', '_(miniseries)', '_(Netflix_film)', '_(Netflix_series)'];
 
     for (const suffix of suffixes) {
       try {
-        const url = `${WIKIPEDIA_API_BASE}/en.wikipedia/all-access/all-agents/${encodeURIComponent(articleTitle + suffix)}/daily/${dateStr}/${dateStr}`;
+        const url = `${WIKIPEDIA_API_BASE}/en.wikipedia/all-access/all-agents/${encodeURIComponent(articleTitle + suffix)}/daily/${startStr}/${endStr}`;
 
         const response = await axios.get(url, {
           headers: {
@@ -162,7 +168,14 @@ async function fetchWikipediaViews(
 
         const items = response.data?.items;
         if (items && items.length > 0) {
-          return items[0].views;
+          return items.map((item: { timestamp: string; views: number }) => ({
+            date: new Date(
+              parseInt(item.timestamp.slice(0, 4)),
+              parseInt(item.timestamp.slice(4, 6)) - 1,
+              parseInt(item.timestamp.slice(6, 8))
+            ),
+            views: item.views,
+          }));
         }
       } catch {
         // Try next suffix
@@ -170,10 +183,10 @@ async function fetchWikipediaViews(
       }
     }
 
-    return null;
+    return [];
   } catch (error) {
     console.warn(`Wikipedia error for "${titleName}":`, error instanceof Error ? error.message : error);
-    return null;
+    return [];
   }
 }
 
@@ -221,17 +234,20 @@ async function processTitle(
     results.trendsFailed++;
   }
 
-  // Fetch Wikipedia views (global only - Wikipedia doesn't have geo breakdown)
-  const wikiViews = await fetchWikipediaViews(title.canonicalName, date);
-  if (wikiViews !== null) {
-    signals.push({
-      titleId: title.id,
-      titleName: title.canonicalName,
-      source: 'WIKIPEDIA',
-      geo: 'GLOBAL',
-      value: wikiViews,
-      date,
-    });
+  // Fetch Wikipedia views for last 7 days (Wikipedia has ~2-day data lag)
+  const wikiViewsRange = await fetchWikipediaViewsRange(title.canonicalName, date);
+  if (wikiViewsRange.length > 0) {
+    // Add all days' data as separate signals
+    for (const dayData of wikiViewsRange) {
+      signals.push({
+        titleId: title.id,
+        titleName: title.canonicalName,
+        source: 'WIKIPEDIA',
+        geo: 'GLOBAL',
+        value: dayData.views,
+        date: dayData.date,
+      });
+    }
     results.wikipediaSuccesses++;
   } else {
     results.wikipediaFailed++;

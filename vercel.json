@@ -10,48 +10,40 @@
       "schedule": "0 10 * * 0"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=0&batchSize=5",
+      "path": "/api/jobs/ingest-signals?offset=0&batchSize=30",
       "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=5&batchSize=5",
-      "schedule": "5 9 * * *"
-    },
-    {
-      "path": "/api/jobs/ingest-signals?offset=10&batchSize=5",
+      "path": "/api/jobs/ingest-signals?offset=30&batchSize=30",
       "schedule": "10 9 * * *"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=15&batchSize=5",
-      "schedule": "15 9 * * *"
-    },
-    {
-      "path": "/api/jobs/ingest-signals?offset=20&batchSize=5",
+      "path": "/api/jobs/ingest-signals?offset=60&batchSize=30",
       "schedule": "20 9 * * *"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=25&batchSize=5",
-      "schedule": "25 9 * * *"
-    },
-    {
-      "path": "/api/jobs/ingest-signals?offset=30&batchSize=5",
+      "path": "/api/jobs/ingest-signals?offset=90&batchSize=30",
       "schedule": "30 9 * * *"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=35&batchSize=5",
-      "schedule": "35 9 * * *"
-    },
-    {
-      "path": "/api/jobs/ingest-signals?offset=40&batchSize=5",
+      "path": "/api/jobs/ingest-signals?offset=120&batchSize=30",
       "schedule": "40 9 * * *"
     },
     {
-      "path": "/api/jobs/ingest-signals?offset=45&batchSize=5",
-      "schedule": "45 9 * * *"
+      "path": "/api/jobs/ingest-signals?offset=150&batchSize=30",
+      "schedule": "50 9 * * *"
+    },
+    {
+      "path": "/api/jobs/ingest-signals?offset=180&batchSize=30",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/jobs/ingest-signals?offset=210&batchSize=30",
+      "schedule": "10 10 * * *"
     },
     {
       "path": "/api/jobs/generate-forecasts",
-      "schedule": "0 10 * * *"
+      "schedule": "20 10 * * *"
     },
     {
       "path": "/api/jobs/sync-polymarket",
