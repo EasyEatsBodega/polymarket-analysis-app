@@ -1,0 +1,31 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="50" cy="45" r="38" fill="none" stroke="#D4A843" stroke-width="4"/>
+
+  <!-- Arrow on circle (growth indicator) -->
+  <path d="M 75 20 L 85 10 L 85 20 M 85 10 L 75 10" fill="none" stroke="#D4A843" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="50" y1="45" x2="82" y2="13" stroke="#D4A843" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Bar chart (upper left) -->
+  <rect x="22" y="32" width="6" height="10" fill="#D4A843"/>
+  <rect x="30" y="26" width="6" height="16" fill="#D4A843"/>
+  <rect x="38" y="20" width="6" height="22" fill="#D4A843"/>
+
+  <!-- Small arrow on chart -->
+  <path d="M 25 30 L 42 18" fill="none" stroke="#D4A843" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 38 17 L 43 18 L 42 23" fill="none" stroke="#D4A843" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Letter P (left side, stylized) -->
+  <path d="M 28 50 L 28 72" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 28 50 Q 42 50 42 57 Q 42 64 28 64" fill="none" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Letter E (right side, stylized with rays) -->
+  <path d="M 52 50 L 52 72" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+  <line x1="52" y1="50" x2="72" y2="50" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+  <line x1="52" y1="61" x2="68" y2="61" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+  <line x1="52" y1="72" x2="72" y2="72" stroke="#D4A843" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Crystal ball base (elliptical stand) -->
+  <ellipse cx="50" cy="88" rx="25" ry="6" fill="none" stroke="#D4A843" stroke-width="3"/>
+  <path d="M 30 83 Q 50 95 70 83" fill="none" stroke="#D4A843" stroke-width="3"/>
+</svg>

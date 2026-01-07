@@ -2,6 +2,7 @@
 
 import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Header() {
   return (
@@ -10,9 +11,13 @@ export default function Header() {
         <div className="flex items-center justify-between">
           {/* Logo and Brand */}
           <Link href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-old-gold rounded-lg flex items-center justify-center">
-              <span className="text-gunmetal font-bold text-xl">P</span>
-            </div>
+            <Image
+              src="/logo.svg"
+              alt="PredictEasy Logo"
+              width={44}
+              height={44}
+              className="w-11 h-11"
+            />
             <div>
               <h1 className="text-xl font-bold">PredictEasy</h1>
               <p className="text-xs text-dust-grey">Make Prediction Trading Easier</p>
