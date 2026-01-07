@@ -33,6 +33,12 @@ export default function Header() {
               Netflix
             </Link>
             <Link
+              href="/awards"
+              className="text-dust-grey hover:text-white transition-colors"
+            >
+              Awards
+            </Link>
+            <Link
               href="/insider-finder"
               className="text-dust-grey hover:text-white transition-colors"
             >
