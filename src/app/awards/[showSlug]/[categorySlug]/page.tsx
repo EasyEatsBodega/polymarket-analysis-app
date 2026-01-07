@@ -150,25 +150,23 @@ function NomineeRow({ nominee, rank }: { nominee: NomineeData; rank: number }) {
         )}
       </div>
 
-      {/* Trade links */}
-      <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-100">
-        {sortedOdds.map(odds => {
-          if (!odds.url) return null;
-          const config = SOURCE_CONFIG[odds.source];
-          if (!config) return null;
-          return (
+      {/* Trade link - Polymarket only */}
+      {(() => {
+        const polymarket = sortedOdds.find(o => o.source === "POLYMARKET" && o.url);
+        if (!polymarket) return null;
+        return (
+          <div className="mt-3 pt-3 border-t border-gray-100">
             <a
-              key={odds.source}
-              href={odds.url}
+              href={polymarket.url!}
               target="_blank"
               rel="noopener noreferrer"
-              className={`text-xs ${config.color} hover:opacity-80 font-medium`}
+              className="text-xs text-purple-600 hover:opacity-80 font-medium"
             >
-              {odds.source === "POLYMARKET" ? "Trade on" : "Bet on"} {config.name} →
+              Trade on Polymarket →
             </a>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
