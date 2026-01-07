@@ -7,9 +7,24 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { OddsSource } from '@prisma/client';
+import { OddsSource, Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+
+// Type for show with all relations included
+type ShowWithRelations = Prisma.AwardShowGetPayload<{
+  include: {
+    categories: {
+      include: {
+        nominees: {
+          include: {
+            odds: true;
+          };
+        };
+      };
+    };
+  };
+}>;
 
 interface NomineeWithEdge {
   id: string;
@@ -70,10 +85,10 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: { ceremonyDate: 'desc' },
-    });
+    }) as unknown as ShowWithRelations[];
 
     // Transform data with edge calculations
-    const response: ShowResponse[] = shows.map(show => ({
+    const response: ShowResponse[] = shows.map((show: ShowWithRelations) => ({
       id: show.id,
       name: show.name,
       slug: show.slug,
