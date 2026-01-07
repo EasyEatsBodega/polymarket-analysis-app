@@ -377,3 +377,120 @@ model InsiderBadge {
   @@index([walletId])
   @@index([badgeType])
 }
+
+// =============================================================================
+// AWARDS MODELS
+// =============================================================================
+
+enum AwardShowStatus {
+  UPCOMING    // Ceremony not yet happened
+  ACTIVE      // Markets open, ceremony approaching
+  COMPLETED   // Ceremony finished, results known
+}
+
+enum OddsSource {
+  POLYMARKET
+  DRAFTKINGS
+  BETMGM
+  BOVADA
+  GOLDDERBY
+}
+
+model AwardShow {
+  id            String          @id @default(cuid())
+  name          String          // "Golden Globes 2026"
+  slug          String          @unique // "golden-globes-2026"
+  ceremonyDate  DateTime
+  status        AwardShowStatus @default(UPCOMING)
+  description   String?
+  imageUrl      String?
+  categories    AwardCategory[]
+  articles      AwardArticle[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([ceremonyDate])
+  @@index([status])
+}
+
+model AwardCategory {
+  id              String          @id @default(cuid())
+  showId          String
+  show            AwardShow       @relation(fields: [showId], references: [id], onDelete: Cascade)
+  name            String          // "Best Director"
+  slug            String          // "best-director"
+  polymarketSlug  String?         // "golden-globes-best-director-winner"
+  polymarketUrl   String?
+  displayOrder    Int             @default(0)
+  nominees        AwardNominee[]
+  articles        AwardArticle[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([showId, slug])
+  @@index([showId])
+}
+
+model AwardNominee {
+  id            String          @id @default(cuid())
+  categoryId    String
+  category      AwardCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name          String          // "Paul Thomas Anderson"
+  subtitle      String?         // "One Battle After Another" (film name)
+  imageUrl      String?
+  isWinner      Boolean         @default(false)
+  odds          AwardOdds[]
+  oddsSnapshots AwardOddsSnapshot[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([categoryId])
+  @@index([isWinner])
+}
+
+model AwardOdds {
+  id          String      @id @default(cuid())
+  nomineeId   String
+  nominee     AwardNominee @relation(fields: [nomineeId], references: [id], onDelete: Cascade)
+  source      OddsSource
+  probability Float       // 0.0 to 1.0
+  rawOdds     String?     // Original format: "+150", "2/1"
+  url         String?     // Link to source market
+  fetchedAt   DateTime    @default(now())
+
+  @@unique([nomineeId, source])
+  @@index([nomineeId])
+  @@index([source])
+}
+
+model AwardOddsSnapshot {
+  id          String      @id @default(cuid())
+  nomineeId   String
+  nominee     AwardNominee @relation(fields: [nomineeId], references: [id], onDelete: Cascade)
+  source      OddsSource
+  probability Float
+  snapshotAt  DateTime    @default(now())
+
+  @@index([nomineeId, snapshotAt])
+  @@index([snapshotAt])
+}
+
+model AwardArticle {
+  id          String         @id @default(cuid())
+  showId      String
+  show        AwardShow      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  categoryId  String?        // Optional - can be show-wide
+  category    AwardCategory? @relation(fields: [categoryId], references: [id])
+  source      String         // "Variety", "IndieWire", "Gold Derby"
+  title       String
+  url         String         @unique
+  author      String?
+  publishedAt DateTime?
+  summary     String?        // AI-generated summary
+  predictions Json?          // Extracted predictions
+  fetchedAt   DateTime       @default(now())
+
+  @@index([showId])
+  @@index([categoryId])
+  @@index([publishedAt])
+}
