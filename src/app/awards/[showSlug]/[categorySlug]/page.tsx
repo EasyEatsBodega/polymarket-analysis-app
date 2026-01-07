@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { calculateCategoryConsensus, NomineeConsensus } from "@/lib/consensusCalculator";
 import ConsensusEstimate from "@/components/awards/ConsensusEstimate";
+import ArticleSection from "@/components/awards/ArticleSection";
 
 interface OddsData {
   source: string;
@@ -23,6 +24,25 @@ interface NomineeData {
   edgeSource: string | null;
 }
 
+interface ArticlePrediction {
+  predictedWinner: string;
+  predictedFilm?: string;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+  quote?: string;
+  alternates?: string[];
+}
+
+interface ArticleData {
+  id: string;
+  source: string;
+  title: string;
+  url: string;
+  summary: string;
+  publishedAt: string;
+  predictions: ArticlePrediction | null;
+}
+
 interface CategoryData {
   id: string;
   name: string;
@@ -31,6 +51,7 @@ interface CategoryData {
   isClosed: boolean;
   leader: NomineeData | null;
   nominees: NomineeData[];
+  articles: ArticleData[];
 }
 
 interface ShowData {
@@ -347,6 +368,11 @@ export default function CategoryDetailPage() {
 
         {/* Edge Highlights */}
         <EdgeHighlights nominees={category.nominees} />
+
+        {/* Expert Analysis - Article predictions */}
+        {category.articles && category.articles.length > 0 && (
+          <ArticleSection articles={category.articles} categoryName={category.name} />
+        )}
 
         {/* Legend - dynamically show sources present in this category */}
         <div className="flex flex-wrap gap-4 mb-6">

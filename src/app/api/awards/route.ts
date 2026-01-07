@@ -41,6 +41,25 @@ interface NomineeWithEdge {
   edgeSource: OddsSource | null;
 }
 
+interface ArticlePrediction {
+  predictedWinner: string;
+  predictedFilm?: string;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+  quote?: string;
+  alternates?: string[];
+}
+
+interface ArticleResponse {
+  id: string;
+  source: string;
+  title: string;
+  url: string;
+  summary: string;
+  publishedAt: string;
+  predictions: ArticlePrediction | null;
+}
+
 interface CategoryResponse {
   id: string;
   name: string;
@@ -49,6 +68,7 @@ interface CategoryResponse {
   isClosed: boolean;
   leader: NomineeWithEdge | null;
   nominees: NomineeWithEdge[];
+  articles: ArticleResponse[];
 }
 
 interface ShowResponse {
@@ -87,6 +107,26 @@ export async function GET(request: NextRequest) {
       orderBy: { ceremonyDate: 'desc' },
     }) as unknown as ShowWithRelations[];
 
+    // Fetch all articles for these shows
+    const showIds = shows.map(s => s.id);
+    const articles = await prisma.awardArticle.findMany({
+      where: {
+        showId: { in: showIds },
+        categoryId: { not: null }, // Only get category-specific articles
+      },
+      orderBy: { publishedAt: 'desc' },
+    });
+
+    // Group articles by category ID
+    const articlesByCategory = new Map<string, typeof articles>();
+    for (const article of articles) {
+      if (article.categoryId) {
+        const existing = articlesByCategory.get(article.categoryId) || [];
+        existing.push(article);
+        articlesByCategory.set(article.categoryId, existing);
+      }
+    }
+
     // Transform data with edge calculations
     const response: ShowResponse[] = shows.map((show: ShowWithRelations) => ({
       id: show.id,
@@ -95,6 +135,8 @@ export async function GET(request: NextRequest) {
       ceremonyDate: show.ceremonyDate.toISOString(),
       status: show.status,
       categories: show.categories.map(category => {
+        // Get articles for this category
+        const categoryArticles = articlesByCategory.get(category.id) || [];
         // Transform nominees with edge calculations
         const nominees: NomineeWithEdge[] = category.nominees.map(nominee => {
           const polymarketOdds = nominee.odds.find(o => o.source === OddsSource.POLYMARKET);
@@ -139,6 +181,27 @@ export async function GET(request: NextRequest) {
         // Get leader (highest odds or winner)
         const leader = nominees.find(n => n.isWinner) || nominees[0] || null;
 
+        // Transform articles
+        const articlesResponse: ArticleResponse[] = categoryArticles.map(article => {
+          const predictions = article.predictions as Record<string, unknown> | null;
+          return {
+            id: article.id,
+            source: article.source,
+            title: article.title,
+            url: article.url,
+            summary: article.summary || '',
+            publishedAt: article.publishedAt?.toISOString() || new Date().toISOString(),
+            predictions: predictions ? {
+              predictedWinner: (predictions.predictedWinner as string) || '',
+              predictedFilm: predictions.predictedFilm as string | undefined,
+              confidence: (predictions.confidence as "high" | "medium" | "low") || 'medium',
+              reasoning: (predictions.reasoning as string) || '',
+              quote: predictions.quote as string | undefined,
+              alternates: predictions.alternates as string[] | undefined,
+            } : null,
+          };
+        });
+
         return {
           id: category.id,
           name: category.name,
@@ -147,6 +210,7 @@ export async function GET(request: NextRequest) {
           isClosed,
           leader,
           nominees,
+          articles: articlesResponse,
         };
       }),
     }));
