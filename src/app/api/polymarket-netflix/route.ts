@@ -34,7 +34,8 @@ const MARKET_PATTERNS = [
 
 // Known recent event IDs to try first (discovered from Polymarket search)
 // Format: { pattern-keyword: [ids] } - these are tried before scanning the full range
-const KNOWN_RECENT_IDS = [872, 835, 812, 756, 748, 592, 237, 125];
+// Add new IDs at the START of this array as they are discovered
+const KNOWN_RECENT_IDS = [486, 872, 835, 812, 756, 748, 592, 237, 125];
 
 // Fallback range if known IDs don't work (only used if all known IDs fail)
 const ID_RANGE_START = 100;
@@ -119,26 +120,41 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
     return cached.id;
   }
 
-  // Try without a number suffix FIRST (most markets now use this format)
-  const eventNoSuffix = await fetchEventBySlug(basePattern);
-  if (eventNoSuffix) {
-    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
-    return 0;
-  }
-
-  // Fallback: try known recent IDs
+  // Try known recent IDs FIRST (these are more likely to be current week's markets)
+  // Check all known IDs in parallel and prefer active (non-closed) markets
   const knownResults = await Promise.all(
     KNOWN_RECENT_IDS.map(async (id) => {
       const slug = `${basePattern}-${id}`;
       const event = await fetchEventBySlug(slug);
-      return event ? id : null;
+      return event ? { id, event } : null;
     })
   );
 
-  const foundKnownId = knownResults.find(id => id !== null);
-  if (foundKnownId) {
-    marketIdCache.set(basePattern, { id: foundKnownId, timestamp: Date.now() });
-    return foundKnownId;
+  // Find active (non-closed) market first
+  const activeMarket = knownResults.find(r => r !== null && !r.event.closed);
+  if (activeMarket) {
+    marketIdCache.set(basePattern, { id: activeMarket.id, timestamp: Date.now() });
+    return activeMarket.id;
+  }
+
+  // If no active market, try without suffix (might be the current format)
+  const eventNoSuffix = await fetchEventBySlug(basePattern);
+  if (eventNoSuffix && !eventNoSuffix.closed) {
+    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
+    return 0;
+  }
+
+  // Fall back to any closed market from known IDs (still has valid historical data)
+  const closedMarket = knownResults.find(r => r !== null);
+  if (closedMarket) {
+    marketIdCache.set(basePattern, { id: closedMarket.id, timestamp: Date.now() });
+    return closedMarket.id;
+  }
+
+  // Fall back to closed no-suffix market
+  if (eventNoSuffix) {
+    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
+    return 0;
   }
 
   // Fallback: scan broader range in batches (only if known IDs failed)
@@ -158,14 +174,22 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
       batch.map(async (id) => {
         const slug = `${basePattern}-${id}`;
         const event = await fetchEventBySlug(slug);
-        return event ? id : null;
+        return event ? { id, event } : null;
       })
     );
 
-    const foundId = results.find(id => id !== null);
-    if (foundId) {
-      marketIdCache.set(basePattern, { id: foundId, timestamp: Date.now() });
-      return foundId;
+    // Prefer active market
+    const activeResult = results.find(r => r !== null && !r.event.closed);
+    if (activeResult) {
+      marketIdCache.set(basePattern, { id: activeResult.id, timestamp: Date.now() });
+      return activeResult.id;
+    }
+
+    // Fall back to closed
+    const anyResult = results.find(r => r !== null);
+    if (anyResult) {
+      marketIdCache.set(basePattern, { id: anyResult.id, timestamp: Date.now() });
+      return anyResult.id;
     }
   }
 

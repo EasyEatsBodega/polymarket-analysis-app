@@ -247,10 +247,18 @@ export async function GET(request: NextRequest) {
         if (outcome.name.toLowerCase() === "other") continue;
         const match = matchOutcomeToTitle(outcome.name, titleCache);
         if (match.matchedTitleId) {
-          marketDataMap.set(match.matchedTitleId, {
-            probability: outcome.probability,
-            polymarketUrl: market.polymarketUrl,
-          });
+          const existing = marketDataMap.get(match.matchedTitleId);
+          const isResolvedProb = outcome.probability >= 0.99 || outcome.probability <= 0.01;
+          const existingIsResolved = existing && (existing.probability >= 0.99 || existing.probability <= 0.01);
+
+          // Prefer non-resolved probabilities (between 1% and 99%)
+          // This ensures active/unresolved markets take priority over closed/resolved ones
+          if (!existing || (existingIsResolved && !isResolvedProb)) {
+            marketDataMap.set(match.matchedTitleId, {
+              probability: outcome.probability,
+              polymarketUrl: market.polymarketUrl,
+            });
+          }
         }
       }
     }
