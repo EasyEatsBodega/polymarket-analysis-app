@@ -4,7 +4,7 @@
  * Fetches Golden Globes betting odds from sportsbooks and stores them
  * for comparison against Polymarket predictions.
  *
- * Currently supports: MyBookie (manual data entry until API available)
+ * Supported sportsbooks: MyBookie, Bovada (manual data entry)
  */
 
 import prisma from '@/lib/prisma';
@@ -45,6 +45,16 @@ const CATEGORY_MAPPING: Record<string, string> = {
   'Best Non-English Language Picture': 'Best Motion Picture - Non-English Language',
   'Cinematic and Box Office Achievement': 'Cinematic and Box Office Achievement',
 };
+
+/**
+ * Sportsbook configuration
+ */
+interface SportsbookConfig {
+  source: OddsSource;
+  name: string;
+  url: string;
+  odds: Record<string, Record<string, number>>;
+}
 
 /**
  * MyBookie odds data (scraped 2026-01-07)
@@ -159,6 +169,97 @@ const MYBOOKIE_ODDS: Record<string, Record<string, number>> = {
   },
 };
 
+/**
+ * Bovada odds data (manually entered 2026-01-07)
+ * Bovada is one of the largest offshore sportsbooks for entertainment betting
+ */
+const BOVADA_ODDS: Record<string, Record<string, number>> = {
+  'Best Director': {
+    'Paul Thomas Anderson': -550,
+    'Jafar Panahi': 550,
+    'Chloe Zhao': 900,
+    'Ryan Coogler': 2200,
+    'Joachim Trier': 2800,
+    'Guillermo Del Toro': 4500,
+  },
+  'Best Actor - Drama': {
+    'Wagner Moura': -275,
+    'Michael B. Jordan': 225,
+    'Dwayne Johnson': 1100,
+    'Jeremy Allen White': 1800,
+    'Joel Edgerton': 2200,
+    'Oscar Isaac': 3500,
+  },
+  'Best Actress - Drama': {
+    'Jessie Buckley': -1800,
+    'Renate Reinsve': 700,
+    'Jennifer Lawrence': 1400,
+    'Julia Roberts': 3000,
+    'Tessa Thompson': 4500,
+    'Eva Victor': 7000,
+  },
+  'Best Actor - Musical or Comedy': {
+    'Timothee Chalamet': -300,
+    'Leonardo DiCaprio': 250,
+    'Ethan Hawke': 700,
+    'Lee Byung-Hun': 1800,
+    'Jesse Plemons': 4500,
+    'George Clooney': 5500,
+  },
+  'Best Actress - Musical or Comedy': {
+    'Rose Byrne': -500,
+    'Emma Stone': 650,
+    'Chase Infiniti': 950,
+    'Kate Hudson': 1100,
+    'Cynthia Erivo': 2200,
+    'Amanda Seyfried': 1800,
+  },
+  'Best Animated Motion Picture': {
+    'K-Pop Demon Hunters': -700,
+    'Little Amelie Or The Character of Rain': 800,
+    'Arco': 1100,
+    'Zootopia 2': 1000,
+    'Elio': 2800,
+    'Demon Slayer': 2200,
+  },
+  'Best Screenplay': {
+    'One Battle After Another': -150,
+    'It Was Just An Accident': 175,
+    'Sinners': 500,
+    'Sentimental Value': 1200,
+    'Marty Supreme': 3000,
+    'Hamnet': 4500,
+  },
+  'Cinematic and Box Office Achievement': {
+    'Sinners': -350,
+    'Avatar: Fire And Ash': 550,
+    'K-Pop Demon Hunters': 750,
+    'Wicked: For Good': 1800,
+    'Zootopia 2': 2200,
+    'Weapons': 3500,
+    'F1': 5500,
+    'Mission: Impossible': 9000,
+  },
+};
+
+/**
+ * All sportsbook configurations
+ */
+const SPORTSBOOKS: SportsbookConfig[] = [
+  {
+    source: OddsSource.MYBOOKIE,
+    name: 'MyBookie',
+    url: 'https://www.mybookie.ag/sportsbook/golden-globe-awards/',
+    odds: MYBOOKIE_ODDS,
+  },
+  {
+    source: OddsSource.BOVADA,
+    name: 'Bovada',
+    url: 'https://www.bovada.lv/sports/entertainment',
+    odds: BOVADA_ODDS,
+  },
+];
+
 export interface SportsbookIngestionResult {
   categoriesProcessed: number;
   nomineesMatched: number;
@@ -197,100 +298,102 @@ export async function ingestSportsbookOdds(): Promise<SportsbookIngestionResult>
     return result;
   }
 
-  // Process each sportsbook category
-  for (const [sportsbookCategory, nominees] of Object.entries(MYBOOKIE_ODDS)) {
-    result.categoriesProcessed++;
-    console.log(`Processing: ${sportsbookCategory}`);
+  // Process each sportsbook
+  for (const sportsbook of SPORTSBOOKS) {
+    console.log(`\n🎰 Processing ${sportsbook.name}...\n`);
 
-    // Find matching category in our database
-    const mappedName = CATEGORY_MAPPING[sportsbookCategory] || sportsbookCategory;
-    const category = show.categories.find(c =>
-      c.name.toLowerCase().includes(mappedName.toLowerCase().split('–')[0].trim()) ||
-      mappedName.toLowerCase().includes(c.name.toLowerCase().split('–')[0].trim())
-    );
+    // Process each category in this sportsbook
+    for (const [sportsbookCategory, nominees] of Object.entries(sportsbook.odds)) {
+      result.categoriesProcessed++;
+      console.log(`  ${sportsbookCategory}:`);
 
-    if (!category) {
-      console.log(`  ⚠️ No matching category found for "${sportsbookCategory}"`);
-      result.unmatched.push(`Category: ${sportsbookCategory}`);
-      continue;
-    }
+      // Find matching category in our database
+      const mappedName = CATEGORY_MAPPING[sportsbookCategory] || sportsbookCategory;
+      const category = show.categories.find(c =>
+        c.name.toLowerCase().includes(mappedName.toLowerCase().split('–')[0].trim()) ||
+        mappedName.toLowerCase().includes(c.name.toLowerCase().split('–')[0].trim())
+      );
 
-    console.log(`  → Matched to: ${category.name}`);
-
-    // Process each nominee
-    for (const [nomineeName, americanOdds] of Object.entries(nominees)) {
-      const probability = americanToProbability(americanOdds);
-
-      // Try to find matching nominee (fuzzy match on first/last name)
-      const nominee = category.nominees.find(n => {
-        const dbName = n.name.toLowerCase();
-        const sportsbookName = nomineeName.toLowerCase();
-
-        // Exact match
-        if (dbName === sportsbookName) return true;
-
-        // Contains match (for partial names)
-        if (dbName.includes(sportsbookName) || sportsbookName.includes(dbName)) return true;
-
-        // Last name match
-        const dbLastName = dbName.split(' ').pop() || '';
-        const sbLastName = sportsbookName.split(' ').pop() || '';
-        if (dbLastName === sbLastName && dbLastName.length > 3) return true;
-
-        return false;
-      });
-
-      if (!nominee) {
-        console.log(`    ⚠️ No match for nominee: ${nomineeName}`);
-        result.unmatched.push(`${category.name}: ${nomineeName}`);
+      if (!category) {
+        console.log(`    ⚠️ No matching category found`);
+        result.unmatched.push(`[${sportsbook.name}] Category: ${sportsbookCategory}`);
         continue;
       }
 
-      result.nomineesMatched++;
+      // Process each nominee
+      for (const [nomineeName, americanOdds] of Object.entries(nominees)) {
+        const probability = americanToProbability(americanOdds);
 
-      // Upsert the sportsbook odds
-      const existingOdds = await prisma.awardOdds.findUnique({
-        where: {
-          nomineeId_source: {
-            nomineeId: nominee.id,
-            source: OddsSource.MYBOOKIE,
-          },
-        },
-      });
+        // Try to find matching nominee (fuzzy match on first/last name)
+        const nominee = category.nominees.find(n => {
+          const dbName = n.name.toLowerCase();
+          const sportsbookName = nomineeName.toLowerCase();
 
-      if (existingOdds) {
-        await prisma.awardOdds.update({
-          where: { id: existingOdds.id },
-          data: {
-            probability,
-            rawOdds: americanOdds.toString(),
-            fetchedAt: new Date(),
+          // Exact match
+          if (dbName === sportsbookName) return true;
+
+          // Contains match (for partial names)
+          if (dbName.includes(sportsbookName) || sportsbookName.includes(dbName)) return true;
+
+          // Last name match
+          const dbLastName = dbName.split(' ').pop() || '';
+          const sbLastName = sportsbookName.split(' ').pop() || '';
+          if (dbLastName === sbLastName && dbLastName.length > 3) return true;
+
+          return false;
+        });
+
+        if (!nominee) {
+          result.unmatched.push(`[${sportsbook.name}] ${category.name}: ${nomineeName}`);
+          continue;
+        }
+
+        result.nomineesMatched++;
+
+        // Upsert the sportsbook odds
+        const existingOdds = await prisma.awardOdds.findUnique({
+          where: {
+            nomineeId_source: {
+              nomineeId: nominee.id,
+              source: sportsbook.source,
+            },
           },
         });
-        result.oddsUpdated++;
-      } else {
-        await prisma.awardOdds.create({
+
+        if (existingOdds) {
+          await prisma.awardOdds.update({
+            where: { id: existingOdds.id },
+            data: {
+              probability,
+              rawOdds: americanOdds.toString(),
+              fetchedAt: new Date(),
+            },
+          });
+          result.oddsUpdated++;
+        } else {
+          await prisma.awardOdds.create({
+            data: {
+              nomineeId: nominee.id,
+              source: sportsbook.source,
+              probability,
+              rawOdds: americanOdds.toString(),
+              url: sportsbook.url,
+            },
+          });
+          result.oddsCreated++;
+        }
+
+        console.log(`    ✅ ${nominee.name}: ${(probability * 100).toFixed(1)}% (${americanOdds > 0 ? '+' : ''}${americanOdds})`);
+
+        // Create snapshot
+        await prisma.awardOddsSnapshot.create({
           data: {
             nomineeId: nominee.id,
-            source: OddsSource.MYBOOKIE,
+            source: sportsbook.source,
             probability,
-            rawOdds: americanOdds.toString(),
-            url: 'https://www.mybookie.ag/sportsbook/golden-globe-awards/',
           },
         });
-        result.oddsCreated++;
       }
-
-      console.log(`    ✅ ${nominee.name}: ${(probability * 100).toFixed(1)}% (${americanOdds > 0 ? '+' : ''}${americanOdds})`);
-
-      // Create snapshot
-      await prisma.awardOddsSnapshot.create({
-        data: {
-          nomineeId: nominee.id,
-          source: OddsSource.MYBOOKIE,
-          probability,
-        },
-      });
     }
   }
 
