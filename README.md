@@ -12,9 +12,9 @@ A modular analytics platform that generates forecasts for various markets and co
 
 PredictEasy helps analysts and traders identify opportunities across Polymarket by:
 
-- **Aggregating Real-World Signals** - Collect and process data from multiple sources
-- **Building Predictive Models** - Generate probability forecasts with confidence intervals
-- **Comparing Against Markets** - Spot discrepancies between model predictions and market prices
+- **Aggregating Multi-Source Signals** - Collect odds from prediction markets, sportsbooks, and expert consensus
+- **Building Consensus Estimates** - Generate weighted probability forecasts from multiple data sources
+- **Detecting Edge Opportunities** - Spot discrepancies between sources to find trading opportunities
 - **Tracking Performance** - Monitor how your forecasts perform over time
 
 ## Market Modules
@@ -25,19 +25,48 @@ PredictEasy is built as a modular platform. Each market category has its own ded
 
 | Module | Status | Description |
 |--------|--------|-------------|
-| **Netflix Entertainment** | In Development | Track Netflix Top 10 rankings for shows and movies |
+| **Awards Intelligence** | Live | Track Golden Globes, Oscars with multi-source consensus |
+| **Netflix Entertainment** | Live | Track Netflix Top 10 rankings for shows and movies |
+| **Insider Finder** | Live | Analyze wallet trading patterns and performance |
 | *Sports* | Planned | Coming soon |
 | *Politics* | Planned | Coming soon |
-| *Culture & Events* | Planned | Coming soon |
+
+### Awards Module Features
+
+The Awards Intelligence Hub provides comprehensive awards prediction tracking:
+
+- **Multi-Source Consensus**: Weighted estimates from Polymarket, sportsbooks (MyBookie, Bovada), and Gold Derby expert predictions
+- **Edge Detection**: Identify discrepancies between sources for trading opportunities
+- **Source Badges**: Visual indicators showing which data sources are available per category
+- **Confidence Scoring**: High/Medium/Low confidence based on source agreement
+- **Category Deep-Dives**: Detailed nominee comparisons with probability bars
+
+**Data Sources & Weights:**
+| Source | Weight | Type |
+|--------|--------|------|
+| Polymarket | 35% | Prediction Market |
+| Gold Derby | 25% | Expert Consensus |
+| MyBookie | 15% | Sportsbook |
+| Bovada | 15% | Sportsbook |
+| DraftKings | 5% | Sportsbook |
+| BetMGM | 5% | Sportsbook |
 
 ### Netflix Module Features
 
-The first module focuses on Netflix-related Polymarket markets:
+Track Netflix-related Polymarket markets:
 
 - **4 Dashboard Views**: Global Shows, Global Movies, US Shows, US Movies
 - **Data Sources**: Netflix official rankings, Google Trends, Wikipedia pageviews
 - **Momentum Scoring**: Identify titles climbing fast in popularity
 - **Forecast Bands**: p10/p50/p90 predictions with confidence intervals
+
+### Insider Finder Features
+
+Analyze Polymarket wallet trading patterns:
+
+- **Wallet Performance Tracking**: Win rate, ROI, and profit metrics
+- **Trading Pattern Analysis**: Identify consistent performers
+- **Position Monitoring**: Track current holdings and trade history
 
 ## Tech Stack
 
@@ -92,6 +121,19 @@ See `.env.example` for all required and optional environment variables.
 
 ## Core Features
 
+### Multi-Source Consensus
+
+- Aggregate odds from multiple sources (prediction markets, sportsbooks, experts)
+- Weighted average calculations with configurable source weights
+- Agreement scoring to measure source consensus
+- Confidence levels based on data availability and agreement
+
+### Edge Detection
+
+- Compare Polymarket prices against sportsbook odds
+- Highlight significant discrepancies (>5% difference)
+- Surface edge opportunities on category and nominee level
+
 ### Polymarket Integration
 
 - Auto-discover markets by keyword filters
@@ -107,26 +149,43 @@ See `.env.example` for all required and optional environment variables.
 - Feature importance explanations
 - Backtesting support
 
-### Discrepancy Detection
-
-- Side-by-side comparison of model forecast vs market price
-- Historical tracking of identified discrepancies
-- Performance metrics on past predictions
-
 ## Architecture
 
 ```
 src/
 ├── app/                    # Next.js App Router
 │   ├── api/               # API routes
-│   ├── [module]/          # Module-specific pages
+│   │   └── awards/        # Awards API endpoints
+│   ├── awards/            # Awards pages
+│   ├── netflix/           # Netflix module
+│   ├── insider-finder/    # Wallet analysis
 │   └── admin/             # Admin settings
 ├── components/            # Shared React components
+│   └── awards/            # Awards-specific components
 ├── lib/                   # Core utilities
+│   └── consensusCalculator.ts  # Multi-source consensus
 ├── jobs/                  # Data pipeline scripts
-├── modules/               # Market-specific modules
-│   └── netflix/           # Netflix analysis module
+│   ├── ingestSportsbookOdds.ts # Sportsbook data
+│   └── ingestGoldDerby.ts      # Expert consensus
 └── types/                 # TypeScript definitions
+```
+
+## Data Ingestion
+
+### Sportsbook Odds
+
+Run the sportsbook ingestion job to update odds:
+
+```bash
+npx dotenv -e .env.local -- npx tsx src/jobs/ingestSportsbookOdds.ts
+```
+
+### Gold Derby Expert Consensus
+
+Run the Gold Derby ingestion job:
+
+```bash
+npx dotenv -e .env.local -- npx tsx src/jobs/ingestGoldDerby.ts
 ```
 
 ## Deployment
@@ -138,14 +197,24 @@ src/
 3. Configure environment variables
 4. Deploy
 
+Automatic deployments trigger on push to `master` branch.
+
 ## Roadmap
 
 - [x] Project scaffold and core infrastructure
-- [ ] Netflix entertainment module
-- [ ] Polymarket API integration
-- [ ] User authentication
-- [ ] Admin configuration panel
-- [ ] Additional market modules
+- [x] Netflix entertainment module
+- [x] Polymarket API integration
+- [x] User authentication
+- [x] Admin configuration panel
+- [x] Awards Intelligence Hub
+- [x] Multi-source consensus calculator
+- [x] Sportsbook odds integration (MyBookie, Bovada)
+- [x] Gold Derby expert consensus
+- [x] Edge detection and opportunities
+- [x] Insider Finder wallet analysis
+- [ ] Article aggregation with AI extraction
+- [ ] Oscar predictions module
+- [ ] Additional award shows
 
 ## Contributing
 
