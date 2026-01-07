@@ -16,6 +16,22 @@ function getSignalStrength(value: number | null): { label: string; color: string
   return { label: "very weak", color: "text-red-500" };
 }
 
+// Tooltips explaining what each signal means
+const SIGNAL_TOOLTIPS: Record<string, { title: string; description: string }> = {
+  Trends: {
+    title: "Google Trends (0-100)",
+    description: "Search interest on Google. Higher = more people searching for this title. 70+ is strong interest, 30-70 moderate, below 30 weak.",
+  },
+  Wiki: {
+    title: "Wikipedia Views (0-100)",
+    description: "Daily Wikipedia pageviews, log-scaled. Higher = more people reading about this title. Good indicator of general audience interest.",
+  },
+  Rank: {
+    title: "Rank Movement (0-100)",
+    description: "How much the title is climbing or falling in Netflix rankings. 50 = no change, above 50 = climbing, below 50 = falling.",
+  },
+};
+
 interface SignalChipProps {
   icon: string;
   label: string;
@@ -24,19 +40,24 @@ interface SignalChipProps {
 }
 
 function SignalChip({ icon, label, value, color }: SignalChipProps) {
+  const tooltip = SIGNAL_TOOLTIPS[label];
+  const tooltipText = tooltip ? `${tooltip.title}\n\n${tooltip.description}` : "";
+
   if (value === null) {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-400 text-xs">
+      <span
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-gray-400 text-xs cursor-help"
+        title={tooltipText ? `${tooltipText}\n\nNo data available` : "No data available"}
+      >
         {icon} {label}: -
       </span>
     );
   }
 
-  const strength = getSignalStrength(value);
-
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${color}`}
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium cursor-help ${color}`}
+      title={tooltipText}
     >
       {icon} {label}: {value}
     </span>
@@ -82,7 +103,10 @@ export default function SignalBreakdown({
 
       {/* Momentum summary */}
       {momentumScore !== null && (
-        <div className="flex items-center gap-2 text-sm">
+        <div
+          className="flex items-center gap-2 text-sm cursor-help"
+          title="Overall Momentum Score (0-100)&#10;&#10;Combined score from Trends, Wiki, and Rank signals. Higher momentum suggests the title is gaining attention and may perform better in rankings.&#10;&#10;70+ = Strong momentum&#10;50-70 = Moderate momentum&#10;30-50 = Weak momentum&#10;Below 30 = Very weak momentum"
+        >
           <span className="text-gray-500">Momentum:</span>
           <span className={`font-bold ${getSignalStrength(momentumScore).color}`}>
             {momentumScore}
