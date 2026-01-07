@@ -6,6 +6,10 @@
   },
   "crons": [
     {
+      "path": "/api/jobs/refresh-markets",
+      "schedule": "0 5 * * *"
+    },
+    {
       "path": "/api/jobs/ingest-netflix",
       "schedule": "0 10 * * 0"
     },
