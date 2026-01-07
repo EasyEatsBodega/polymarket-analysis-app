@@ -34,12 +34,12 @@ const MARKET_PATTERNS = [
 
 // Auto-discovery settings - category-aware ID ranges for faster scanning
 // Market IDs vary by category based on observed patterns:
-// - Shows: IDs tend to be in 400-600 range (e.g., 486)
-// - Movies: IDs tend to be in 700-950 range (e.g., 872)
+// - US Shows: ~486, Global Shows: ~456
+// - Movies: ~872 range
 // We check hot ranges first, then expand if needed
 const HOT_RANGES: Record<string, { start: number; end: number }> = {
-  'shows': { start: 480, end: 600 },  // Shows tend to use lower IDs
-  'movies': { start: 850, end: 950 }, // Movies tend to use higher IDs
+  'shows': { start: 450, end: 600 },  // Shows use IDs 450-600 (US: 486, Global: 456)
+  'movies': { start: 850, end: 950 }, // Movies use higher IDs (~872)
 };
 const EXTENDED_RANGE = { start: 400, end: 1000 }; // Fallback full range
 const SCAN_BATCH_SIZE = 30; // Check 30 IDs in parallel per batch

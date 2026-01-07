@@ -5,7 +5,7 @@
 // Simulate the auto-discovery logic from the route
 
 const HOT_RANGES: Record<string, { start: number; end: number }> = {
-  'shows': { start: 480, end: 600 },
+  'shows': { start: 450, end: 600 },  // US: 486, Global: 456
   'movies': { start: 850, end: 950 },
 };
 const EXTENDED_RANGE = { start: 400, end: 1000 };
