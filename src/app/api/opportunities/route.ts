@@ -364,7 +364,7 @@ export async function GET(request: NextRequest) {
       if (withForecasts.length === 0) return items;
 
       // Sort by forecastP50, then by tiebreakers (higher momentum = better/lower rank)
-      withForecasts.sort((a, b) => {
+      const sorted = [...withForecasts].sort((a, b) => {
         // Primary: forecast p50 (lower is better)
         const p50Diff = (a.forecastP50 ?? 99) - (b.forecastP50 ?? 99);
         if (p50Diff !== 0) return p50Diff;
@@ -381,26 +381,26 @@ export async function GET(request: NextRequest) {
         return (a.currentRank ?? 99) - (b.currentRank ?? 99);
       });
 
-      // Assign unique predicted ranks (1, 2, 3, ...)
-      // Keep p10/p90 relative to the new p50
-      withForecasts.forEach((item, index) => {
+      // Assign unique predicted ranks (1, 2, 3, ...) by creating new objects
+      const deduped = sorted.map((item, index) => {
         const newP50 = index + 1;
         const oldP50 = item.forecastP50 ?? newP50;
         const offset = newP50 - oldP50;
 
-        item.forecastP50 = newP50;
-        if (item.forecastP10 !== null) {
-          item.forecastP10 = Math.max(1, item.forecastP10 + offset);
-        }
-        if (item.forecastP90 !== null) {
-          item.forecastP90 = Math.min(10, item.forecastP90 + offset);
-        }
+        return {
+          ...item,
+          forecastP50: newP50,
+          forecastP10: item.forecastP10 !== null ? Math.max(1, item.forecastP10 + offset) : null,
+          forecastP90: item.forecastP90 !== null ? Math.min(10, item.forecastP90 + offset) : null,
+        };
       });
 
-      return [...withForecasts, ...withoutForecasts];
+      return [...deduped, ...withoutForecasts];
     };
 
     const deduplicatedOpportunities = deduplicatePredictedRanks(opportunities);
+
+    console.log('[opportunities] Deduplicated ranks:', deduplicatedOpportunities.map(o => ({ title: o.title.substring(0, 20), p50: o.forecastP50 })));
 
     // 8. Sort results
     deduplicatedOpportunities.sort((a, b) => {
