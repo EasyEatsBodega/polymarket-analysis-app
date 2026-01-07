@@ -68,6 +68,10 @@
     {
       "path": "/api/jobs/discover-releases",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/jobs/ingest-awards",
+      "schedule": "0 */4 * * *"
     }
   ]
 }
