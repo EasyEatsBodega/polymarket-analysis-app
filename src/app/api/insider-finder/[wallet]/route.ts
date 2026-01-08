@@ -7,9 +7,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InsiderBadgeType } from '@prisma/client';
+import { InsiderBadgeType, Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type InsiderTradeResult = Prisma.InsiderTradeGetPayload<{}>;
+type InsiderBadgeResult = Prisma.InsiderBadgeGetPayload<{}>;
 
 interface TradeDetail {
   id: string;
@@ -149,19 +153,19 @@ export async function GET(
     }
 
     // Fetch all badges for this wallet
-    const badges = await prisma.insiderBadge.findMany({
+    const badges: InsiderBadgeResult[] = await prisma.insiderBadge.findMany({
       where: { walletId: wallet.id },
       orderBy: { earnedAt: 'desc' },
     });
 
     // Fetch all trades for this wallet
-    const trades = await prisma.insiderTrade.findMany({
+    const trades: InsiderTradeResult[] = await prisma.insiderTrade.findMany({
       where: { walletId: wallet.id },
       orderBy: { timestamp: 'desc' },
     });
 
     // Map badges by trade ID for easy lookup
-    const badgesByTrade = new Map<string, typeof badges>();
+    const badgesByTrade = new Map<string, InsiderBadgeResult[]>();
     for (const badge of badges) {
       if (badge.tradeId) {
         if (!badgesByTrade.has(badge.tradeId)) {

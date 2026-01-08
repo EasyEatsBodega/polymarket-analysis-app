@@ -5,10 +5,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { TitleType, CandidateStatus } from '@prisma/client';
+import { TitleType, CandidateStatus, Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type ReleaseCandidateResult = Prisma.ReleaseCandidateGetPayload<{}>;
+type TitleBasic = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true };
+}>;
 
 /**
  * GET /api/releases
@@ -38,7 +44,7 @@ export async function GET(request: NextRequest) {
       whereClause.type = type;
     }
 
-    const candidates = await prisma.releaseCandidate.findMany({
+    const candidates: ReleaseCandidateResult[] = await prisma.releaseCandidate.findMany({
       where: whereClause,
       take: limit,
       orderBy: [
@@ -49,17 +55,17 @@ export async function GET(request: NextRequest) {
 
     // Fetch associated titles for matched candidates
     const titleIds = candidates
-      .filter((c) => c.titleId !== null)
-      .map((c) => c.titleId as string);
+      .filter((c: ReleaseCandidateResult) => c.titleId !== null)
+      .map((c: ReleaseCandidateResult) => c.titleId as string);
 
-    const titles = titleIds.length > 0
+    const titles: TitleBasic[] = titleIds.length > 0
       ? await prisma.title.findMany({
           where: { id: { in: titleIds } },
           select: { id: true, canonicalName: true, type: true },
         })
       : [];
 
-    const titleMap = new Map(titles.map((t) => [t.id, t]));
+    const titleMap = new Map(titles.map((t: TitleBasic) => [t.id, t]));
 
     // Transform for response
     const releases = candidates.map((c) => {

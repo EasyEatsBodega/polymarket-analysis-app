@@ -7,12 +7,24 @@
  * - Simple regression models
  */
 
-import { ForecastTarget } from '@prisma/client';
+import { ForecastTarget, Prisma } from '@prisma/client';
 import { SimpleLinearRegression } from 'ml-regression-simple-linear';
 import { standardDeviation } from 'simple-statistics';
 import { TitleFeatures, buildTitleFeatures, getMomentumWeights, MomentumBreakdown } from './featureBuilder';
 
 import prisma from '@/lib/prisma';
+
+// Define Prisma types for properly typed queries
+type NetflixWeeklyGlobalSelect = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { weekStart: true; rank: true; views: true };
+}>;
+type NetflixWeeklyUSSelect = Prisma.NetflixWeeklyUSGetPayload<{
+  select: { weekStart: true; rank: true };
+}>;
+type NetflixWeeklyGlobalRankSelect = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { weekStart: true; rank: true };
+}>;
+type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 
 // Model version for tracking
 export const MODEL_VERSION = '1.0.0';
@@ -66,7 +78,7 @@ async function getHistoricalData(
       select: { weekStart: true, rank: true, views: true },
     });
 
-    return data.map((d) => ({
+    return data.map((d: NetflixWeeklyGlobalSelect) => ({
       weekStart: d.weekStart,
       rank: d.rank,
       views: d.views ? Number(d.views) : null,
@@ -83,7 +95,7 @@ async function getHistoricalData(
     });
 
     if (usData.length > 0) {
-      return usData.map((d) => ({
+      return usData.map((d: NetflixWeeklyUSSelect) => ({
         weekStart: d.weekStart,
         rank: d.rank,
         views: null,
@@ -100,7 +112,7 @@ async function getHistoricalData(
       select: { weekStart: true, rank: true },
     });
 
-    return globalData.map((d) => ({
+    return globalData.map((d: NetflixWeeklyGlobalRankSelect) => ({
       weekStart: d.weekStart,
       rank: d.rank,
       views: null,
@@ -364,15 +376,15 @@ export async function generatePreReleaseForecast(
   });
 
   // Calculate average signal values
-  const trendsSignals = signals.filter(s => s.source === 'TRENDS');
-  const wikiSignals = signals.filter(s => s.source === 'WIKIPEDIA');
+  const trendsSignals = signals.filter((s: DailySignalResult) => s.source === 'TRENDS');
+  const wikiSignals = signals.filter((s: DailySignalResult) => s.source === 'WIKIPEDIA');
 
   const avgTrends = trendsSignals.length > 0
-    ? trendsSignals.reduce((sum, s) => sum + s.value, 0) / trendsSignals.length
+    ? trendsSignals.reduce((sum: number, s: DailySignalResult) => sum + s.value, 0) / trendsSignals.length
     : null;
 
   const avgWiki = wikiSignals.length > 0
-    ? wikiSignals.reduce((sum, s) => sum + s.value, 0) / wikiSignals.length
+    ? wikiSignals.reduce((sum: number, s: DailySignalResult) => sum + s.value, 0) / wikiSignals.length
     : null;
 
   // Calculate momentum score from signals (no rank data)

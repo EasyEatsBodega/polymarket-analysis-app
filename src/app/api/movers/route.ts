@@ -6,9 +6,36 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { TitleType } from '@prisma/client';
+import { TitleType, Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type WeeklyDataWithSelect = {
+  titleId: string;
+  rank: number;
+  views?: bigint | null;
+  category: string;
+};
+
+type PreviousWeekData = {
+  titleId: string;
+  rank: number;
+  views?: bigint | null;
+};
+
+type TitleBasic = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true };
+}>;
+
+type ForecastBasic = {
+  titleId: string;
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+  explainJson: Prisma.JsonValue | null;
+  weekStart: Date;
+};
 
 
 export interface MomentumBreakdown {
@@ -93,7 +120,7 @@ export async function GET(request: NextRequest) {
     const whereClause = type ? { type } : {};
 
     // Fetch current week data and titles separately to avoid complex nested queries
-    const currentWeekData =
+    const currentWeekData: WeeklyDataWithSelect[] =
       geo === 'US'
         ? await prisma.netflixWeeklyUS.findMany({
             where: {
@@ -131,7 +158,7 @@ export async function GET(request: NextRequest) {
     const titleIds = currentWeekData.map((d) => d.titleId);
 
     // Batch fetch titles and forecasts
-    const [titles, forecasts] = await Promise.all([
+    const [titles, forecasts]: [TitleBasic[], ForecastBasic[]] = await Promise.all([
       prisma.title.findMany({
         where: { id: { in: titleIds } },
         select: { id: true, canonicalName: true, type: true },
@@ -167,7 +194,7 @@ export async function GET(request: NextRequest) {
     }));
 
     // Get previous week data for comparison (cached)
-    const previousData =
+    const previousData: PreviousWeekData[] =
       geo === 'US'
         ? await prisma.netflixWeeklyUS.findMany({
             where: {
@@ -186,7 +213,7 @@ export async function GET(request: NextRequest) {
             cacheStrategy: { ttl: 300 },
           });
 
-    const previousMap = new Map(previousData.map((p) => [p.titleId, p]));
+    const previousMap = new Map(previousData.map((p: PreviousWeekData) => [p.titleId, p]));
 
     // Build response with momentum calculation
     const movers: MoverResponse[] = currentData

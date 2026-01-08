@@ -5,10 +5,21 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { TitleType } from '@prisma/client';
+import { TitleType, Prisma } from '@prisma/client';
 import prisma, { withRetry } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type WeeklyGlobalWithWeekStart = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { weekStart: true };
+}>;
+
+type NetflixWeeklyGlobalResult = Prisma.NetflixWeeklyGlobalGetPayload<{}>;
+
+type TitleBasic = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true };
+}>;
 
 interface ChartDataPoint {
   week: string;
@@ -39,7 +50,7 @@ export async function GET(request: NextRequest) {
     const categoryFilter = getCategoryFilter();
 
     // Get the most recent weeks
-    const recentWeeks = await withRetry(() =>
+    const recentWeeks = await withRetry<WeeklyGlobalWithWeekStart[]>(() =>
       prisma.netflixWeeklyGlobal.findMany({
         where: categoryFilter ? { category: categoryFilter } : {},
         select: { weekStart: true },
@@ -61,7 +72,7 @@ export async function GET(request: NextRequest) {
     const latestWeek = weekStarts[weekStarts.length - 1];
 
     // Get top titles from the latest week
-    const topRankings = await withRetry(() =>
+    const topRankings = await withRetry<NetflixWeeklyGlobalResult[]>(() =>
       prisma.netflixWeeklyGlobal.findMany({
         where: {
           weekStart: latestWeek,
@@ -76,7 +87,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch title details and historical data in parallel
     const [titlesData, historicalData] = titleIds.length > 0
-      ? await withRetry(() =>
+      ? await withRetry<[TitleBasic[], NetflixWeeklyGlobalResult[]]>(() =>
           Promise.all([
             prisma.title.findMany({
               where: { id: { in: titleIds } },
@@ -92,7 +103,7 @@ export async function GET(request: NextRequest) {
             }),
           ])
         )
-      : [[], []];
+      : [[], []] as [TitleBasic[], NetflixWeeklyGlobalResult[]];
     const titleMap = new Map(titlesData.map(t => [t.id, t]));
 
     // Build chart data structure

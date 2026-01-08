@@ -19,7 +19,13 @@ import {
   getMarketPrices,
   fetchTradesByWallet,
 } from '@/lib/polymarketClient';
-import { InsiderBadgeType } from '@prisma/client';
+import { InsiderBadgeType, Prisma } from '@prisma/client';
+
+// Define Prisma types for properly typed queries
+type InsiderTradeResult = Prisma.InsiderTradeGetPayload<{}>;
+type InsiderWalletWithTrades = Prisma.InsiderWalletGetPayload<{
+  include: { trades: true };
+}>;
 
 interface ScanResult {
   walletsScanned: number;
@@ -202,18 +208,18 @@ async function updateTradeResolutions(walletId: string): Promise<void> {
  * Update wallet statistics
  */
 async function updateWalletStats(walletId: string): Promise<void> {
-  const trades = await prisma.insiderTrade.findMany({
+  const trades: InsiderTradeResult[] = await prisma.insiderTrade.findMany({
     where: { walletId },
   });
 
-  const resolvedTrades = trades.filter((t) => t.resolved);
-  const wonTrades = resolvedTrades.filter((t) => t.won === true);
+  const resolvedTrades = trades.filter((t: InsiderTradeResult) => t.resolved);
+  const wonTrades = resolvedTrades.filter((t: InsiderTradeResult) => t.won === true);
 
   const totalTrades = trades.length;
-  const totalVolume = trades.reduce((sum, t) => sum + t.usdValue, 0);
+  const totalVolume = trades.reduce((sum, t: InsiderTradeResult) => sum + t.usdValue, 0);
   const winRate = resolvedTrades.length > 0 ? wonTrades.length / resolvedTrades.length : null;
 
-  const timestamps = trades.map((t) => t.timestamp.getTime());
+  const timestamps = trades.map((t: InsiderTradeResult) => t.timestamp.getTime());
   const firstTradeAt = new Date(Math.min(...timestamps));
   const lastTradeAt = new Date(Math.max(...timestamps));
 
@@ -236,7 +242,7 @@ async function updateWalletStats(walletId: string): Promise<void> {
  */
 async function awardBadges(walletId: string, result: ScanResult): Promise<void> {
   // Get wallet and trades
-  const wallet = await prisma.insiderWallet.findUnique({
+  const wallet: InsiderWalletWithTrades | null = await prisma.insiderWallet.findUnique({
     where: { id: walletId },
     include: { trades: true },
   });
@@ -252,7 +258,7 @@ async function awardBadges(walletId: string, result: ScanResult): Promise<void> 
       resolvedTrades: wallet.resolvedTrades,
       firstTradeAt: wallet.firstTradeAt,
     },
-    wallet.trades.map((t) => ({
+    wallet.trades.map((t: InsiderTradeResult) => ({
       id: t.id,
       usdValue: t.usdValue,
       price: t.price,

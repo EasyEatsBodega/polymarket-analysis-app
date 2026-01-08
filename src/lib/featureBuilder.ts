@@ -285,7 +285,7 @@ async function getAverageSignal(
   }
 
   // Calculate average of most recent signals
-  const sum = recentSignals.reduce((acc, s) => acc + s.value, 0);
+  const sum = recentSignals.reduce((acc: number, s: { value: number }) => acc + s.value, 0);
   return sum / recentSignals.length;
 }
 
@@ -446,8 +446,8 @@ export async function buildAllFeatures(weekStart: Date): Promise<TitleFeatures[]
 
   // Combine and dedupe
   const titleIds = new Set([
-    ...titlesWithData.map((t) => t.titleId),
-    ...usData.map((t) => t.titleId),
+    ...titlesWithData.map((t: { titleId: string }) => t.titleId),
+    ...usData.map((t: { titleId: string }) => t.titleId),
   ]);
 
   const features: TitleFeatures[] = [];

@@ -13,7 +13,20 @@
  */
 
 import prisma from '@/lib/prisma';
-import { OddsSource } from '@prisma/client';
+import { OddsSource, Prisma } from '@prisma/client';
+
+// Define types for the show with included categories and nominees
+type ShowWithCategoriesAndNominees = Prisma.AwardShowGetPayload<{
+  include: {
+    categories: {
+      include: {
+        nominees: true;
+      };
+    };
+  };
+}>;
+type CategoryWithNominees = ShowWithCategoriesAndNominees['categories'][number];
+type Nominee = CategoryWithNominees['nominees'][number];
 
 /**
  * Gold Derby consensus odds data (manually entered)
@@ -128,7 +141,7 @@ export async function ingestGoldDerby(): Promise<GoldDerbyIngestionResult> {
   console.log('🏆 Starting Gold Derby consensus ingestion...\n');
 
   // Get the Golden Globes 2026 show
-  const show = await prisma.awardShow.findUnique({
+  const show: ShowWithCategoriesAndNominees | null = await prisma.awardShow.findUnique({
     where: { slug: 'golden-globes-2026' },
     include: {
       categories: {
@@ -153,11 +166,11 @@ export async function ingestGoldDerby(): Promise<GoldDerbyIngestionResult> {
     const mappedName = CATEGORY_MAPPING[gdCategory] || gdCategory;
 
     // Try exact match first
-    let category = show.categories.find(c => c.name === mappedName);
+    let category = show.categories.find((c: CategoryWithNominees) => c.name === mappedName);
 
     // Fall back to case-insensitive match
     if (!category) {
-      category = show.categories.find(c =>
+      category = show.categories.find((c: CategoryWithNominees) =>
         c.name.toLowerCase() === mappedName.toLowerCase()
       );
     }
@@ -175,7 +188,7 @@ export async function ingestGoldDerby(): Promise<GoldDerbyIngestionResult> {
       const probability = percentage / 100; // Convert percentage to 0-1
 
       // Try to find matching nominee (fuzzy match)
-      const nominee = category.nominees.find(n => {
+      const nominee = category.nominees.find((n: Nominee) => {
         const dbName = n.name.toLowerCase();
         const gdName = nomineeName.toLowerCase();
 

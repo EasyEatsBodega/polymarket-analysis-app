@@ -5,9 +5,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import prisma, { withRetry } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type PinnedTitleResult = Prisma.PinnedTitleGetPayload<{}>;
+type TitleFull = Prisma.TitleGetPayload<{}>;
+type TitleBasic = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true };
+}>;
+type PacingMetricResult = Prisma.PacingMetricDailyGetPayload<{}>;
+type ReleaseCandidateResult = Prisma.ReleaseCandidateGetPayload<{}>;
 
 /**
  * GET /api/watchlist
@@ -19,7 +29,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
 
     // Fetch pinned titles
-    const pinnedTitles = await withRetry(() =>
+    const pinnedTitles = await withRetry<PinnedTitleResult[]>(() =>
       prisma.pinnedTitle.findMany({
         take: limit,
         orderBy: { pinnedAt: 'desc' },
@@ -41,8 +51,8 @@ export async function GET(request: NextRequest) {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     // Fetch titles and pacing metrics in parallel with retry
-    const [titles, pacingMetrics] = titleIds.length > 0
-      ? await withRetry(() =>
+    const [titles, pacingMetrics]: [TitleBasic[], PacingMetricResult[]] = titleIds.length > 0
+      ? await withRetry<[TitleBasic[], PacingMetricResult[]]>(() =>
           Promise.all([
             prisma.title.findMany({
               where: { id: { in: titleIds } },
@@ -58,10 +68,10 @@ export async function GET(request: NextRequest) {
           ])
         )
       : [[], []];
-    const titleMap = new Map(titles.map((t) => [t.id, t]));
+    const titleMap = new Map(titles.map((t: TitleBasic) => [t.id, t]));
 
     // Group metrics by titleId
-    const metricsMap = new Map<string, typeof pacingMetrics>();
+    const metricsMap = new Map<string, PacingMetricResult[]>();
     for (const metric of pacingMetrics) {
       if (!metricsMap.has(metric.titleId)) {
         metricsMap.set(metric.titleId, []);
@@ -70,8 +80,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch release candidates
-    const releaseCandidates = titleIds.length > 0
-      ? await withRetry(() =>
+    const releaseCandidates: ReleaseCandidateResult[] = titleIds.length > 0
+      ? await withRetry<ReleaseCandidateResult[]>(() =>
           prisma.releaseCandidate.findMany({
             where: {
               titleId: { in: titleIds },
@@ -80,7 +90,7 @@ export async function GET(request: NextRequest) {
           })
         )
       : [];
-    const candidateMap = new Map(releaseCandidates.map((c) => [c.titleId!, c]));
+    const candidateMap = new Map(releaseCandidates.map((c: ReleaseCandidateResult) => [c.titleId!, c]));
 
     // Transform data for frontend
     const watchlist = pinnedTitles.map((pinned) => {
@@ -160,7 +170,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if title exists
-    const title = await withRetry(() =>
+    const title = await withRetry<TitleFull | null>(() =>
       prisma.title.findUnique({
         where: { id: titleId },
       })
@@ -174,7 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already pinned
-    const existing = await withRetry(() =>
+    const existing = await withRetry<PinnedTitleResult | null>(() =>
       prisma.pinnedTitle.findUnique({
         where: { titleId },
       })
@@ -188,7 +198,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create pinned title
-    const pinned = await withRetry(() =>
+    const pinned = await withRetry<PinnedTitleResult>(() =>
       prisma.pinnedTitle.create({
         data: {
           titleId,

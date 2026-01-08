@@ -20,11 +20,16 @@ const NETFLIX_GLOBAL_URL = 'https://www.netflix.com/tudum/top10/data/all-weeks-g
 const NETFLIX_COUNTRIES_URL = 'https://www.netflix.com/tudum/top10/data/all-weeks-countries.xlsx';
 
 // Category mapping for TitleType
+// Global data uses: "TV (English)", "Films (English)", etc.
+// Country data uses simplified: "TV", "Films"
 const CATEGORY_TYPE_MAP: Record<string, TitleType> = {
   'TV (English)': 'SHOW',
   'TV (Non-English)': 'SHOW',
   'Films (English)': 'MOVIE',
   'Films (Non-English)': 'MOVIE',
+  // Simplified categories used in country-specific data
+  'TV': 'SHOW',
+  'Films': 'MOVIE',
 };
 
 interface GlobalRow {

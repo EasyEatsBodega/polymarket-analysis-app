@@ -10,7 +10,6 @@ function createClient() {
   const url = process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL;
   
   const client = new PrismaClient({
-    // @ts-expect-error - accelerateUrl is required for client engine
     accelerateUrl: url,
     log: ["error", "warn"],
   }).$extends(withAccelerate());

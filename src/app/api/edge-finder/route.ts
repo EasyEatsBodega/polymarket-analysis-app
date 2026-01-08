@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import {
   calculateModelProbability,
@@ -22,6 +23,17 @@ import {
 import { matchOutcomeToTitle, buildTitleCache } from '@/lib/marketMatcher';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type MarketPriceSnapshotResult = Prisma.MarketPriceSnapshotGetPayload<{}>;
+
+type ForecastWeeklyWithTitle = Prisma.ForecastWeeklyGetPayload<{
+  include: {
+    title: {
+      select: { canonicalName: true };
+    };
+  };
+}>;
 
 interface ParsedOutcome {
   name: string;
@@ -101,7 +113,7 @@ async function getPriceChanges(marketSlug: string): Promise<{
   }
 
   // Get recent snapshots
-  const snapshots = await prisma.marketPriceSnapshot.findMany({
+  const snapshots: MarketPriceSnapshotResult[] = await prisma.marketPriceSnapshot.findMany({
     where: {
       marketId: market.id,
       timestamp: { gte: d7Ago },
@@ -195,7 +207,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
       cacheStrategy: { ttl: 300 },
     });
 
-    const forecasts = latestWeek
+    const forecasts: ForecastWeeklyWithTitle[] = latestWeek
       ? await prisma.forecastWeekly.findMany({
           where: {
             weekStart: latestWeek.weekStart,
@@ -210,7 +222,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<EdgeFinder
         })
       : [];
 
-    const forecastMap = new Map(forecasts.map(f => [f.titleId, f]));
+    const forecastMap = new Map(forecasts.map((f: ForecastWeeklyWithTitle) => [f.titleId, f]));
 
     // 4. Process markets and calculate edges
     const edges: EdgeOpportunity[] = [];

@@ -5,9 +5,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type PacingMetricResult = Prisma.PacingMetricDailyGetPayload<{}>;
 
 interface RouteParams {
   params: Promise<{ titleId: string }>;
@@ -49,7 +53,7 @@ export async function GET(
     startDate.setHours(0, 0, 0, 0);
 
     // Fetch pacing metrics
-    const metrics = await prisma.pacingMetricDaily.findMany({
+    const metrics: PacingMetricResult[] = await prisma.pacingMetricDaily.findMany({
       where: {
         titleId,
         date: {

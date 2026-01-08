@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
         const leader = nominees.find(n => n.isWinner) || nominees[0] || null;
 
         // Transform articles
-        const articlesResponse: ArticleResponse[] = categoryArticles.map(article => {
+        const articlesResponse: ArticleResponse[] = categoryArticles.map((article: (typeof articles)[number]) => {
           const predictions = article.predictions as Record<string, unknown> | null;
           return {
             id: article.id,

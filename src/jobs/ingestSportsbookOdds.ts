@@ -8,7 +8,20 @@
  */
 
 import prisma from '@/lib/prisma';
-import { OddsSource } from '@prisma/client';
+import { OddsSource, Prisma } from '@prisma/client';
+
+// Define types for the show with included categories and nominees
+type ShowWithCategoriesAndNominees = Prisma.AwardShowGetPayload<{
+  include: {
+    categories: {
+      include: {
+        nominees: true;
+      };
+    };
+  };
+}>;
+type CategoryWithNominees = ShowWithCategoriesAndNominees['categories'][number];
+type Nominee = CategoryWithNominees['nominees'][number];
 
 /**
  * Convert American odds to probability
@@ -282,7 +295,7 @@ export async function ingestSportsbookOdds(): Promise<SportsbookIngestionResult>
   console.log('📊 Starting sportsbook odds ingestion...\n');
 
   // Get the Golden Globes 2026 show
-  const show = await prisma.awardShow.findUnique({
+  const show: ShowWithCategoriesAndNominees | null = await prisma.awardShow.findUnique({
     where: { slug: 'golden-globes-2026' },
     include: {
       categories: {
@@ -309,7 +322,7 @@ export async function ingestSportsbookOdds(): Promise<SportsbookIngestionResult>
 
       // Find matching category in our database
       const mappedName = CATEGORY_MAPPING[sportsbookCategory] || sportsbookCategory;
-      const category = show.categories.find(c =>
+      const category = show.categories.find((c: CategoryWithNominees) =>
         c.name.toLowerCase().includes(mappedName.toLowerCase().split('–')[0].trim()) ||
         mappedName.toLowerCase().includes(c.name.toLowerCase().split('–')[0].trim())
       );
@@ -325,7 +338,7 @@ export async function ingestSportsbookOdds(): Promise<SportsbookIngestionResult>
         const probability = americanToProbability(americanOdds);
 
         // Try to find matching nominee (fuzzy match on first/last name)
-        const nominee = category.nominees.find(n => {
+        const nominee = category.nominees.find((n: Nominee) => {
           const dbName = n.name.toLowerCase();
           const sportsbookName = nomineeName.toLowerCase();
 

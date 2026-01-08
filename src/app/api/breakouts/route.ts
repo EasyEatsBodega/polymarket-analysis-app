@@ -6,9 +6,30 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { TitleType } from '@prisma/client';
+import { TitleType, Prisma } from '@prisma/client';
 import prisma, { withRetry } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
+
+// Define Prisma types for properly typed queries
+type WeeklyGlobalWithWeekStart = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { weekStart: true };
+}>;
+
+type WeeklyGlobalWithRank = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { rank: true };
+}>;
+
+type ForecastWithTitle = Prisma.ForecastWeeklyGetPayload<{
+  include: {
+    title: {
+      include: {
+        weeklyGlobal: true;
+      };
+    };
+  };
+}>;
+
+type AppConfigResult = Prisma.AppConfigGetPayload<{}>;
 
 
 export interface BreakoutResponse {
@@ -26,14 +47,18 @@ export interface BreakoutResponse {
 
 async function getBreakoutThreshold(): Promise<number> {
   try {
-    const config = await withRetry(() =>
+    const config = await withRetry<AppConfigResult | null>(() =>
       prisma.appConfig.findUnique({
         where: { key: 'breakoutThreshold' },
       })
     );
 
-    if (config?.value && typeof config.value === 'object' && 'value' in config.value) {
-      return (config.value as { value: number }).value;
+    if (config) {
+      // Cast through 'unknown' to bypass strict Prisma Json typing
+      const rawValue = config.value as unknown;
+      if (rawValue && typeof rawValue === 'object' && 'value' in rawValue) {
+        return (rawValue as { value: number }).value;
+      }
     }
   } catch {
     // Fall back to default
@@ -54,7 +79,7 @@ export async function GET(request: NextRequest) {
     const threshold = await getBreakoutThreshold();
 
     // Get the most recent week with data
-    const latestWeek = await withRetry(() =>
+    const latestWeek = await withRetry<WeeklyGlobalWithWeekStart | null>(() =>
       prisma.netflixWeeklyGlobal.findFirst({
         orderBy: { weekStart: 'desc' },
         select: { weekStart: true },
@@ -76,7 +101,7 @@ export async function GET(request: NextRequest) {
     // Get forecasts with high momentum for this week
     const whereClause = type ? { title: { type } } : {};
 
-    const forecasts = await withRetry(() =>
+    const forecasts = await withRetry<ForecastWithTitle[]>(() =>
       prisma.forecastWeekly.findMany({
         where: {
           weekStart,
@@ -113,7 +138,7 @@ export async function GET(request: NextRequest) {
         const currentData = forecast.title.weeklyGlobal[0];
 
         // Get previous week rank
-        const previousData = await withRetry(() =>
+        const previousData = await withRetry<WeeklyGlobalWithRank | null>(() =>
           prisma.netflixWeeklyGlobal.findFirst({
             where: {
               titleId: forecast.titleId,
@@ -124,7 +149,7 @@ export async function GET(request: NextRequest) {
         );
 
         // Count weeks on chart
-        const weeksCount = await withRetry(() =>
+        const weeksCount = await withRetry<number>(() =>
           prisma.netflixWeeklyGlobal.count({
             where: { titleId: forecast.titleId },
           })

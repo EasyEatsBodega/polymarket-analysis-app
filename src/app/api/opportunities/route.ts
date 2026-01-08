@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { TitleType } from "@prisma/client";
+import { TitleType, Prisma } from "@prisma/client";
 import prisma, { withRetry } from "@/lib/prisma";
 import {
   calculateModelProbability,
@@ -16,6 +16,40 @@ import {
 import { matchOutcomeToTitle, buildTitleCache } from "@/lib/marketMatcher";
 
 export const dynamic = "force-dynamic";
+
+// Define Prisma types for properly typed queries
+type WeeklyGlobalWithWeekStart = Prisma.NetflixWeeklyGlobalGetPayload<{
+  select: { weekStart: true };
+}>;
+
+type WeeklyGlobalWithSelect = {
+  titleId: string;
+  rank: number;
+  views: bigint | null;
+  category: string;
+};
+
+type PreviousWeekData = {
+  titleId: string;
+  rank: number;
+};
+
+type TitleWithAliases = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true; aliases: true };
+}>;
+
+type TitleBasic = Prisma.TitleGetPayload<{
+  select: { id: true; canonicalName: true; type: true };
+}>;
+
+type ForecastBasic = {
+  titleId: string;
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+  explainJson: Prisma.JsonValue | null;
+  weekStart: Date;
+};
 
 type Signal = "BUY" | "HOLD" | "AVOID";
 type SignalStrength = "strong" | "moderate" | "weak";
@@ -120,7 +154,7 @@ export async function GET(request: NextRequest) {
     const netflixCategory = categoryParam ? categoryMap[categoryParam] : null;
 
     // 1. Get the most recent week with data
-    const latestWeek = await withRetry(() =>
+    const latestWeek = await withRetry<WeeklyGlobalWithWeekStart | null>(() =>
       prisma.netflixWeeklyGlobal.findFirst({
         orderBy: { weekStart: "desc" },
         select: { weekStart: true },
@@ -142,7 +176,7 @@ export async function GET(request: NextRequest) {
     // 2. Fetch current week Netflix rankings
     const titleWhereClause = type ? { type } : {};
 
-    const currentWeekData = await withRetry(() =>
+    const currentWeekData = await withRetry<WeeklyGlobalWithSelect[]>(() =>
       prisma.netflixWeeklyGlobal.findMany({
         where: {
           weekStart,
@@ -161,20 +195,20 @@ export async function GET(request: NextRequest) {
     );
 
     // 3. Get previous week data
-    const previousWeekData = await withRetry(() =>
+    const previousWeekData = await withRetry<PreviousWeekData[]>(() =>
       prisma.netflixWeeklyGlobal.findMany({
         where: { weekStart: previousWeekStart },
         select: { titleId: true, rank: true },
       })
     );
-    const previousMap = new Map(previousWeekData.map((p) => [p.titleId, p.rank]));
+    const previousMap = new Map(previousWeekData.map((p: PreviousWeekData) => [p.titleId, p.rank]));
 
     // 4. Get title IDs and fetch related data
     const titleIds = currentWeekData.map((d) => d.titleId);
 
     // Guard against empty arrays (Prisma can throw "null pointer" errors with empty IN clauses)
-    const [titles, forecasts] = titleIds.length > 0
-      ? await withRetry(() =>
+    const [titles, forecasts]: [TitleWithAliases[], ForecastBasic[]] = titleIds.length > 0
+      ? await withRetry<[TitleWithAliases[], ForecastBasic[]]>(() =>
           Promise.all([
             prisma.title.findMany({
               where: { id: { in: titleIds } },
@@ -236,7 +270,7 @@ export async function GET(request: NextRequest) {
 
     // 5b. Fetch ALL titles from database for market matching
     // (not just titles in the filtered category, since Polymarket markets span categories)
-    const allTitles = await withRetry(() =>
+    const allTitles = await withRetry<TitleWithAliases[]>(() =>
       prisma.title.findMany({
         select: { id: true, canonicalName: true, type: true, aliases: true },
       })
@@ -365,7 +399,7 @@ export async function GET(request: NextRequest) {
     const existingTitleIds = new Set(opportunities.map(o => o.id));
 
     // Get all titles with polymarket external IDs, then filter in JS to avoid Prisma notIn issues
-    const allPolymarketTitles = await withRetry(() =>
+    const allPolymarketTitles = await withRetry<TitleBasic[]>(() =>
       prisma.title.findMany({
         where: {
           externalIds: { some: { provider: 'polymarket' } },
@@ -379,8 +413,8 @@ export async function GET(request: NextRequest) {
 
     // Get forecasts for pre-release titles
     const preReleaseTitleIds = preReleaseTitles.map(t => t.id);
-    const preReleaseForecasts = preReleaseTitleIds.length > 0
-      ? await withRetry(() =>
+    const preReleaseForecasts: ForecastBasic[] = preReleaseTitleIds.length > 0
+      ? await withRetry<ForecastBasic[]>(() =>
           prisma.forecastWeekly.findMany({
             where: {
               titleId: { in: preReleaseTitleIds },
