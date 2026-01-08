@@ -87,7 +87,6 @@ function ShowHeader({ show }: { show: ShowData }) {
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl md:text-4xl font-bold">{show.name}</h1>
-              <StatusBadge status={show.status} />
             </div>
             <p className="text-dust-grey text-lg">{formatDate(show.ceremonyDate)}</p>
           </div>
