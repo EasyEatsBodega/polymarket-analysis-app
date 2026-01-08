@@ -353,6 +353,142 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // 6b. Add pre-release Polymarket titles (not in current Netflix rankings)
+    // These are titles with polymarket markets but no current Netflix data
+    const existingTitleIds = new Set(opportunities.map(o => o.id));
+
+    // Get pre-release titles with polymarket external IDs and forecasts
+    const preReleaseTitles = await prisma.title.findMany({
+      where: {
+        externalIds: { some: { provider: 'polymarket' } },
+        id: { notIn: Array.from(existingTitleIds) },
+      },
+      select: { id: true, canonicalName: true, type: true },
+      cacheStrategy: { ttl: 300 },
+    });
+
+    // Get forecasts for pre-release titles
+    const preReleaseForecasts = await prisma.forecastWeekly.findMany({
+      where: {
+        titleId: { in: preReleaseTitles.map(t => t.id) },
+        target: "RANK",
+      },
+      select: {
+        titleId: true,
+        p10: true,
+        p50: true,
+        p90: true,
+        explainJson: true,
+        weekStart: true,
+      },
+      orderBy: { weekStart: "desc" },
+      cacheStrategy: { ttl: 300 },
+    });
+
+    // Build forecast map for pre-release titles
+    const preReleaseForecastMap = new Map<
+      string,
+      { p10: number | null; p50: number | null; p90: number | null; explainJson: unknown }
+    >();
+    for (const f of preReleaseForecasts) {
+      if (!preReleaseForecastMap.has(f.titleId)) {
+        preReleaseForecastMap.set(f.titleId, f);
+      }
+    }
+
+    for (const title of preReleaseTitles) {
+      const marketData = marketDataMap.get(title.id);
+      const forecast = preReleaseForecastMap.get(title.id);
+
+      // Skip if no market data (we only want titles actively trading on Polymarket)
+      if (!marketData) continue;
+
+      const explainJson = forecast?.explainJson as {
+        momentumScore?: number;
+        accelerationScore?: number;
+        confidence?: string;
+        momentumBreakdown?: MomentumBreakdown;
+      } | null;
+
+      const momentumScore = explainJson?.momentumScore ?? null;
+      const accelerationScore = explainJson?.accelerationScore ?? 0;
+      const confidence = (explainJson?.confidence as "low" | "medium" | "high") ?? "low";
+      const momentumBreakdown = explainJson?.momentumBreakdown ?? null;
+
+      // Calculate edge
+      let marketProbability: number | null = marketData.probability;
+      let modelProbability: number | null = null;
+      let edgePercent: number | null = null;
+      let reasoning: string | null = null;
+
+      if (forecast) {
+        const modelResult = calculateModelProbability(
+          momentumScore ?? 50,
+          accelerationScore,
+          { p10: forecast.p10 ?? 5, p50: forecast.p50 ?? 5, p90: forecast.p90 ?? 5 },
+          confidence
+        );
+        modelProbability = modelResult.probability;
+
+        const edgeResult = calculateEdge(marketProbability, modelProbability);
+        edgePercent = edgeResult.edgePercent;
+
+        reasoning = generateReasoning({
+          direction: edgeResult.direction,
+          edgePercent: edgeResult.edgePercent,
+          momentumScore: momentumScore ?? 50,
+          accelerationScore,
+          forecastP50: forecast.p50 ?? 5,
+          forecastP10: forecast.p10 ?? 5,
+          forecastP90: forecast.p90 ?? 5,
+          historicalPattern: "pre_release",
+          marketProbability,
+        });
+      }
+
+      const { signal, strength } = classifySignal(edgePercent, true);
+
+      // Filter by min edge if opportunitiesOnly
+      if (opportunitiesOnly && (edgePercent === null || Math.abs(edgePercent) < minEdge)) {
+        continue;
+      }
+
+      // Determine category based on title type
+      const preReleaseCategory = title.type === 'MOVIE'
+        ? 'Films (English)'
+        : 'TV (English)';
+
+      // Skip if category filter doesn't match
+      if (netflixCategory && preReleaseCategory !== netflixCategory) {
+        continue;
+      }
+
+      opportunities.push({
+        id: title.id,
+        title: title.canonicalName,
+        type: title.type,
+        category: preReleaseCategory,
+        currentRank: null, // Pre-release - no current rank
+        previousRank: null,
+        forecastP50: forecast?.p50 ?? null,
+        forecastP10: forecast?.p10 ?? null,
+        forecastP90: forecast?.p90 ?? null,
+        hasMarket: true,
+        marketProbability,
+        modelProbability,
+        edgePercent,
+        polymarketUrl: marketData.polymarketUrl,
+        signal,
+        signalStrength: strength,
+        confidence,
+        momentumScore,
+        momentumBreakdown,
+        reasoning,
+      });
+    }
+
+    console.log('[opportunities] Added pre-release titles:', preReleaseTitles.filter(t => marketDataMap.has(t.id)).map(t => t.canonicalName));
+
     // 7. Deduplicate predicted ranks
     // Multiple titles can have the same forecastP50, but rankings should be unique
     // Use momentum score as tiebreaker, then assign unique ranks

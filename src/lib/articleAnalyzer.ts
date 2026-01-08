@@ -124,8 +124,13 @@ If the article doesn't make clear predictions, return an empty predictions array
       throw new Error('No text content in response');
     }
 
-    // Parse JSON response
-    const analysis = JSON.parse(textContent.text) as ArticleAnalysis;
+    // Parse JSON response (strip markdown code blocks if present)
+    let jsonText = textContent.text.trim();
+    if (jsonText.startsWith('```')) {
+      // Remove markdown code block wrapper
+      jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+    const analysis = JSON.parse(jsonText) as ArticleAnalysis;
 
     // Validate and clean up predictions
     analysis.predictions = analysis.predictions

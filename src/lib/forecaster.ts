@@ -499,16 +499,19 @@ export async function generateAllForecasts(
     }
   }
 
-  // Get Polymarket titles (pre-release content)
+  // Get Polymarket titles that need pre-release forecasts
+  // This includes:
+  // 1. Titles with polymarket ID and NO Netflix data at all (pre-release)
+  // 2. Titles with polymarket ID and only OLD Netflix data (returning/new season)
   const polymarketTitles = await prisma.title.findMany({
     where: {
       externalIds: {
         some: { provider: 'polymarket' },
       },
-      // Exclude titles that already have Netflix data
+      // Exclude titles that have RECENT Netflix data (they're already forecast above)
       AND: [
-        { weeklyGlobal: { none: {} } },
-        { weeklyUS: { none: {} } },
+        { weeklyGlobal: { none: { weekStart: { gte: thirtyDaysAgo } } } },
+        { weeklyUS: { none: { weekStart: { gte: thirtyDaysAgo } } } },
       ],
     },
     select: { id: true, canonicalName: true, type: true },
