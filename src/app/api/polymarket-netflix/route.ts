@@ -32,17 +32,14 @@ const MARKET_PATTERNS = [
   { basePattern: 'what-will-be-the-2-global-netflix-movie-this-week', category: 'films-non-english', rank: 2, label: '#2 Global Movie' },
 ];
 
-// Auto-discovery settings - category-aware ID ranges for faster scanning
-// Market IDs vary by category based on observed patterns:
-// - US Shows: ~486, Global Shows: ~456
-// - Movies: ~872 range
-// We check hot ranges first, then expand if needed
+// Auto-discovery settings - scan wider ranges to find current week's markets
+// Market IDs increment each week, so we need to scan higher ranges over time
 const HOT_RANGES: Record<string, { start: number; end: number }> = {
-  'shows': { start: 450, end: 600 },  // Shows use IDs 450-600 (US: 486, Global: 456)
-  'movies': { start: 850, end: 950 }, // Movies use higher IDs (~872)
+  'shows': { start: 450, end: 800 },  // Shows - expanded range
+  'movies': { start: 850, end: 1200 }, // Movies - expanded range
 };
-const EXTENDED_RANGE = { start: 400, end: 1000 }; // Fallback full range
-const SCAN_BATCH_SIZE = 30; // Check 30 IDs in parallel per batch
+const EXTENDED_RANGE = { start: 400, end: 1500 }; // Fallback full range - expanded
+const SCAN_BATCH_SIZE = 50; // Check 50 IDs in parallel per batch for faster scanning
 
 interface PolymarketMarket {
   id: string;
@@ -84,7 +81,7 @@ interface ParsedMarket {
 
 // Cache for discovered market IDs to avoid rescanning
 const marketIdCache: Map<string, { id: number; timestamp: number }> = new Map();
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes - refresh more often to catch new markets
 
 async function fetchEventBySlug(slug: string): Promise<PolymarketEvent | null> {
   try {
@@ -160,10 +157,17 @@ async function scanRange(
 }
 
 async function findActiveMarketId(basePattern: string): Promise<number | null> {
-  // Check cache first
+  // Check cache first (only use cache for active markets)
   const cached = marketIdCache.get(basePattern);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.id;
+    // Verify cached market is still active
+    const slug = cached.id === 0 ? basePattern : `${basePattern}-${cached.id}`;
+    const event = await fetchEventBySlug(slug);
+    if (event && !event.closed) {
+      return cached.id;
+    }
+    // Cache is stale (market closed), clear it
+    marketIdCache.delete(basePattern);
   }
 
   // Try without suffix first (might be a market without ID suffix)
@@ -177,49 +181,51 @@ async function findActiveMarketId(basePattern: string): Promise<number | null> {
   const isMovie = basePattern.includes('movie');
   const hotRange = isMovie ? HOT_RANGES['movies'] : HOT_RANGES['shows'];
 
+  // Track best closed market as fallback
+  let bestClosedMarket: { id: number; closed: boolean } | null = null;
+
   // Step 1: Check hot range first (most likely to find current week's market)
   const hotResult = await scanRange(basePattern, hotRange.start, hotRange.end);
   if (hotResult && !hotResult.closed) {
     marketIdCache.set(basePattern, { id: hotResult.id, timestamp: Date.now() });
     return hotResult.id;
   }
-
-  // Step 2: If no active found in hot range, check extended range
-  // Skip the hot range we already checked
-  let extendedResult: { id: number; closed: boolean } | null = null;
-
-  // Check below hot range
-  if (hotRange.start > EXTENDED_RANGE.start) {
-    extendedResult = await scanRange(basePattern, EXTENDED_RANGE.start, hotRange.start - 1);
-    if (extendedResult && !extendedResult.closed) {
-      marketIdCache.set(basePattern, { id: extendedResult.id, timestamp: Date.now() });
-      return extendedResult.id;
-    }
+  if (hotResult) {
+    bestClosedMarket = hotResult;
   }
 
-  // Check above hot range
+  // Step 2: Check above hot range (newer markets have higher IDs)
   if (hotRange.end < EXTENDED_RANGE.end) {
     const aboveResult = await scanRange(basePattern, hotRange.end + 1, EXTENDED_RANGE.end);
     if (aboveResult && !aboveResult.closed) {
       marketIdCache.set(basePattern, { id: aboveResult.id, timestamp: Date.now() });
       return aboveResult.id;
     }
-    // Keep track of best closed market
-    if (aboveResult && (!extendedResult || aboveResult.id > extendedResult.id)) {
-      extendedResult = aboveResult;
+    if (aboveResult && (!bestClosedMarket || aboveResult.id > bestClosedMarket.id)) {
+      bestClosedMarket = aboveResult;
     }
   }
 
-  // No active market found - use best closed market
-  const bestClosed = hotResult || extendedResult;
-  if (bestClosed) {
-    marketIdCache.set(basePattern, { id: bestClosed.id, timestamp: Date.now() });
-    return bestClosed.id;
+  // Step 3: Check below hot range
+  if (hotRange.start > EXTENDED_RANGE.start) {
+    const belowResult = await scanRange(basePattern, EXTENDED_RANGE.start, hotRange.start - 1);
+    if (belowResult && !belowResult.closed) {
+      marketIdCache.set(basePattern, { id: belowResult.id, timestamp: Date.now() });
+      return belowResult.id;
+    }
+    if (belowResult && (!bestClosedMarket || belowResult.id > bestClosedMarket.id)) {
+      bestClosedMarket = belowResult;
+    }
+  }
+
+  // No active market found - use most recent closed market (highest ID = most recent)
+  // Don't cache closed markets - we want to keep checking for active ones
+  if (bestClosedMarket) {
+    return bestClosedMarket.id;
   }
 
   // Fall back to no-suffix market even if closed
   if (eventNoSuffix) {
-    marketIdCache.set(basePattern, { id: 0, timestamp: Date.now() });
     return 0;
   }
 
@@ -278,6 +284,12 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const tab = searchParams.get('tab');
+    const refresh = searchParams.get('refresh') === 'true';
+
+    // Clear cache if refresh requested
+    if (refresh) {
+      marketIdCache.clear();
+    }
 
     // Filter patterns by category if tab is provided
     const patternsToFetch = tab

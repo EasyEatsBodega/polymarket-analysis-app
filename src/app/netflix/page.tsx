@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import BreakoutGrid from "@/components/BreakoutCard";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
 import RankTrendChart from "@/components/RankTrendChart";
 import WatchlistPanel from "@/components/WatchlistPanel";
@@ -161,18 +160,6 @@ export default function NetflixPage() {
               limit={viewMode === "opportunities" ? 20 : 10}
               compact={false}
             />
-          </section>
-
-          <section className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gunmetal">
-                Breakout Titles
-              </h2>
-              <span className="text-sm text-gray-500">
-                High momentum + positive acceleration
-              </span>
-            </div>
-            <BreakoutGrid type={activeTabConfig.type} limit={6} />
           </section>
 
           <section>
