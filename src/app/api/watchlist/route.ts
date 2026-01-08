@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import prisma, { withRetry } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,10 +19,12 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
 
     // Fetch pinned titles
-    const pinnedTitles = await prisma.pinnedTitle.findMany({
-      take: limit,
-      orderBy: { pinnedAt: 'desc' },
-    });
+    const pinnedTitles = await withRetry(() =>
+      prisma.pinnedTitle.findMany({
+        take: limit,
+        orderBy: { pinnedAt: 'desc' },
+      })
+    );
 
     if (pinnedTitles.length === 0) {
       return NextResponse.json({
@@ -34,24 +36,29 @@ export async function GET(request: NextRequest) {
 
     const titleIds = pinnedTitles.map((p) => p.titleId);
 
-    // Fetch titles
-    const titles = await prisma.title.findMany({
-      where: { id: { in: titleIds } },
-      select: { id: true, canonicalName: true, type: true },
-    });
-    const titleMap = new Map(titles.map((t) => [t.id, t]));
-
     // Fetch pacing metrics (last 7 days for each title)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const pacingMetrics = await prisma.pacingMetricDaily.findMany({
-      where: {
-        titleId: { in: titleIds },
-        date: { gte: sevenDaysAgo },
-      },
-      orderBy: { date: 'desc' },
-    });
+    // Fetch titles and pacing metrics in parallel with retry
+    const [titles, pacingMetrics] = titleIds.length > 0
+      ? await withRetry(() =>
+          Promise.all([
+            prisma.title.findMany({
+              where: { id: { in: titleIds } },
+              select: { id: true, canonicalName: true, type: true },
+            }),
+            prisma.pacingMetricDaily.findMany({
+              where: {
+                titleId: { in: titleIds },
+                date: { gte: sevenDaysAgo },
+              },
+              orderBy: { date: 'desc' },
+            }),
+          ])
+        )
+      : [[], []];
+    const titleMap = new Map(titles.map((t) => [t.id, t]));
 
     // Group metrics by titleId
     const metricsMap = new Map<string, typeof pacingMetrics>();
@@ -63,12 +70,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch release candidates
-    const releaseCandidates = await prisma.releaseCandidate.findMany({
-      where: {
-        titleId: { in: titleIds },
-        status: { in: ['PENDING', 'MATCHED'] },
-      },
-    });
+    const releaseCandidates = titleIds.length > 0
+      ? await withRetry(() =>
+          prisma.releaseCandidate.findMany({
+            where: {
+              titleId: { in: titleIds },
+              status: { in: ['PENDING', 'MATCHED'] },
+            },
+          })
+        )
+      : [];
     const candidateMap = new Map(releaseCandidates.map((c) => [c.titleId!, c]));
 
     // Transform data for frontend
@@ -129,8 +140,6 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
@@ -151,9 +160,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if title exists
-    const title = await prisma.title.findUnique({
-      where: { id: titleId },
-    });
+    const title = await withRetry(() =>
+      prisma.title.findUnique({
+        where: { id: titleId },
+      })
+    );
 
     if (!title) {
       return NextResponse.json(
@@ -163,9 +174,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already pinned
-    const existing = await prisma.pinnedTitle.findUnique({
-      where: { titleId },
-    });
+    const existing = await withRetry(() =>
+      prisma.pinnedTitle.findUnique({
+        where: { titleId },
+      })
+    );
 
     if (existing) {
       return NextResponse.json(
@@ -175,12 +188,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Create pinned title
-    const pinned = await prisma.pinnedTitle.create({
-      data: {
-        titleId,
-        pinnedBy: pinnedBy || null,
-      },
-    });
+    const pinned = await withRetry(() =>
+      prisma.pinnedTitle.create({
+        data: {
+          titleId,
+          pinnedBy: pinnedBy || null,
+        },
+      })
+    );
 
     return NextResponse.json({
       success: true,
@@ -204,7 +219,5 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

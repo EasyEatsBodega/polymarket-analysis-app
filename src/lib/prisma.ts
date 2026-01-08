@@ -2,26 +2,55 @@ import { PrismaClient } from "@prisma/client";
 import { withAccelerate } from "@prisma/extension-accelerate";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: ReturnType<typeof createPrismaClient> | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  prisma: any;
 };
 
-function createPrismaClient() {
-  // Use PRISMA_DATABASE_URL for Accelerate (prisma+postgres://...)
-  // or fall back to DATABASE_URL for direct connection
-  const accelerateUrl = process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL;
+function createClient() {
+  const url = process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL;
   
   const client = new PrismaClient({
-    accelerateUrl,
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    // @ts-expect-error - accelerateUrl is required for client engine
+    accelerateUrl: url,
+    log: ["error", "warn"],
   }).$extends(withAccelerate());
-  
+
   return client;
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+export const prisma = globalForPrisma.prisma ?? createClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
+}
+
+// Helper function to retry Prisma operations that fail with "null pointer" errors
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delayMs = 100
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      const errorMessage = lastError?.message || '';
+      
+      // Only retry on "null pointer" errors from Prisma Accelerate
+      if (errorMessage.includes('null pointer') && attempt < maxRetries) {
+        console.warn(`[Prisma] Retry ${attempt}/${maxRetries} after null pointer error`);
+        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  
+  throw lastError;
 }
 
 export default prisma;

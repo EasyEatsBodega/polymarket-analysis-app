@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 interface Breakout {
   id: string;
@@ -58,43 +59,45 @@ function AccelerationIndicator({ score }: { score: number }) {
 
 function BreakoutCardComponent({ breakout }: BreakoutCardProps) {
   return (
-    <div className="border border-dust-grey rounded-lg p-4 bg-white hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start mb-3">
-        <div>
-          <h3 className="font-medium text-gunmetal">{breakout.title}</h3>
-          <span className="text-xs text-gray-500">{breakout.type}</span>
+    <Link href={`/netflix/${breakout.id}`} className="block">
+      <div className="border border-dust-grey rounded-lg p-4 bg-white hover:shadow-md hover:border-pine-blue transition-all cursor-pointer">
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <h3 className="font-medium text-gunmetal">{breakout.title}</h3>
+            <span className="text-xs text-gray-500">{breakout.type}</span>
+          </div>
+          <PatternBadge pattern={breakout.historicalPattern} />
         </div>
-        <PatternBadge pattern={breakout.historicalPattern} />
+
+        <div className="space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">Rank</span>
+            <span className="font-bold text-gunmetal">
+              #{breakout.currentRank || "-"}
+              {breakout.rankChange !== null && breakout.rankChange > 0 && (
+                <span className="text-green-600 text-sm ml-1">(+{breakout.rankChange})</span>
+              )}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">Momentum</span>
+            <span className="font-bold text-old-gold">{breakout.momentumScore}</span>
+          </div>
+
+          <div>
+            <span className="text-sm text-gray-600 block mb-1">Acceleration</span>
+            <AccelerationIndicator score={breakout.accelerationScore} />
+          </div>
+
+          <div className="pt-2 border-t border-dust-grey">
+            <span className="text-xs text-gray-500">
+              {breakout.weeksOnChart} week{breakout.weeksOnChart !== 1 ? "s" : ""} on chart
+            </span>
+          </div>
+        </div>
       </div>
-
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-600">Rank</span>
-          <span className="font-bold text-gunmetal">
-            #{breakout.currentRank || "-"}
-            {breakout.rankChange !== null && breakout.rankChange > 0 && (
-              <span className="text-green-600 text-sm ml-1">(+{breakout.rankChange})</span>
-            )}
-          </span>
-        </div>
-
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-600">Momentum</span>
-          <span className="font-bold text-old-gold">{breakout.momentumScore}</span>
-        </div>
-
-        <div>
-          <span className="text-sm text-gray-600 block mb-1">Acceleration</span>
-          <AccelerationIndicator score={breakout.accelerationScore} />
-        </div>
-
-        <div className="pt-2 border-t border-dust-grey">
-          <span className="text-xs text-gray-500">
-            {breakout.weeksOnChart} week{breakout.weeksOnChart !== 1 ? "s" : ""} on chart
-          </span>
-        </div>
-      </div>
-    </div>
+    </Link>
   );
 }
 

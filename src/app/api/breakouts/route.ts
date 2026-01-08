@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { TitleType } from '@prisma/client';
-import prisma from '@/lib/prisma';
+import prisma, { withRetry } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 
@@ -26,9 +26,11 @@ export interface BreakoutResponse {
 
 async function getBreakoutThreshold(): Promise<number> {
   try {
-    const config = await prisma.appConfig.findUnique({
-      where: { key: 'breakoutThreshold' },
-    });
+    const config = await withRetry(() =>
+      prisma.appConfig.findUnique({
+        where: { key: 'breakoutThreshold' },
+      })
+    );
 
     if (config?.value && typeof config.value === 'object' && 'value' in config.value) {
       return (config.value as { value: number }).value;
@@ -52,10 +54,12 @@ export async function GET(request: NextRequest) {
     const threshold = await getBreakoutThreshold();
 
     // Get the most recent week with data
-    const latestWeek = await prisma.netflixWeeklyGlobal.findFirst({
-      orderBy: { weekStart: 'desc' },
-      select: { weekStart: true },
-    });
+    const latestWeek = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findFirst({
+        orderBy: { weekStart: 'desc' },
+        select: { weekStart: true },
+      })
+    );
 
     if (!latestWeek) {
       return NextResponse.json({
@@ -72,22 +76,24 @@ export async function GET(request: NextRequest) {
     // Get forecasts with high momentum for this week
     const whereClause = type ? { title: { type } } : {};
 
-    const forecasts = await prisma.forecastWeekly.findMany({
-      where: {
-        weekStart,
-        ...whereClause,
-      },
-      include: {
-        title: {
-          include: {
-            weeklyGlobal: {
-              where: { weekStart },
-              take: 1,
+    const forecasts = await withRetry(() =>
+      prisma.forecastWeekly.findMany({
+        where: {
+          weekStart,
+          ...whereClause,
+        },
+        include: {
+          title: {
+            include: {
+              weeklyGlobal: {
+                where: { weekStart },
+                take: 1,
+              },
             },
           },
         },
-      },
-    });
+      })
+    );
 
     // Filter for breakouts (high momentum + positive acceleration)
     const breakouts: BreakoutResponse[] = [];
@@ -107,18 +113,22 @@ export async function GET(request: NextRequest) {
         const currentData = forecast.title.weeklyGlobal[0];
 
         // Get previous week rank
-        const previousData = await prisma.netflixWeeklyGlobal.findFirst({
-          where: {
-            titleId: forecast.titleId,
-            weekStart: previousWeekStart,
-          },
-          select: { rank: true },
-        });
+        const previousData = await withRetry(() =>
+          prisma.netflixWeeklyGlobal.findFirst({
+            where: {
+              titleId: forecast.titleId,
+              weekStart: previousWeekStart,
+            },
+            select: { rank: true },
+          })
+        );
 
         // Count weeks on chart
-        const weeksCount = await prisma.netflixWeeklyGlobal.count({
-          where: { titleId: forecast.titleId },
-        });
+        const weeksCount = await withRetry(() =>
+          prisma.netflixWeeklyGlobal.count({
+            where: { titleId: forecast.titleId },
+          })
+        );
 
         breakouts.push({
           id: forecast.title.id,
@@ -161,7 +171,5 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

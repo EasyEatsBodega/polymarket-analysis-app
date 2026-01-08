@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 interface WatchlistItem {
   id: string;
@@ -163,15 +164,15 @@ function WatchlistCard({
   };
 
   return (
-    <div className="border border-dust-grey rounded-lg p-4 bg-white hover:shadow-md transition-shadow">
+    <div className="border border-dust-grey rounded-lg p-4 bg-white hover:shadow-md hover:border-pine-blue transition-all">
       <div className="flex justify-between items-start mb-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-medium text-gunmetal truncate">{item.title.name}</h3>
+        <Link href={`/netflix/${item.title.id}`} className="flex-1 min-w-0 group">
+          <h3 className="font-medium text-gunmetal truncate group-hover:text-pine-blue transition-colors">{item.title.name}</h3>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-xs text-gray-500">{item.title.type}</span>
             <DaysUntilRelease releaseDate={item.releaseDate} />
           </div>
-        </div>
+        </Link>
         <button
           onClick={handleUnpin}
           disabled={unpinning}
@@ -208,6 +209,7 @@ function WatchlistCard({
         </button>
       </div>
 
+      <Link href={`/netflix/${item.title.id}`} className="block">
       <div className="space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">Pacing</span>
@@ -243,6 +245,7 @@ function WatchlistCard({
           </div>
         )}
       </div>
+      </Link>
     </div>
   );
 }

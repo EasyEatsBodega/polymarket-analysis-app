@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { TitleType } from '@prisma/client';
-import prisma from '@/lib/prisma';
+import prisma, { withRetry } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,15 +38,16 @@ export async function GET(request: NextRequest) {
     };
     const categoryFilter = getCategoryFilter();
 
-    // Get the most recent weeks (cached for 5 minutes)
-    const recentWeeks = await prisma.netflixWeeklyGlobal.findMany({
-      where: categoryFilter ? { category: categoryFilter } : {},
-      select: { weekStart: true },
-      distinct: ['weekStart'],
-      orderBy: { weekStart: 'desc' },
-      take: weeks,
-      cacheStrategy: { ttl: 300 },
-    });
+    // Get the most recent weeks
+    const recentWeeks = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findMany({
+        where: categoryFilter ? { category: categoryFilter } : {},
+        select: { weekStart: true },
+        distinct: ['weekStart'],
+        orderBy: { weekStart: 'desc' },
+        take: weeks,
+      })
+    );
 
     if (recentWeeks.length === 0) {
       return NextResponse.json({
@@ -59,36 +60,39 @@ export async function GET(request: NextRequest) {
     const weekStarts = recentWeeks.map(w => w.weekStart).reverse(); // Oldest to newest
     const latestWeek = weekStarts[weekStarts.length - 1];
 
-    // Get top titles from the latest week (cached)
-    const topRankings = await prisma.netflixWeeklyGlobal.findMany({
-      where: {
-        weekStart: latestWeek,
-        ...(categoryFilter && { category: categoryFilter }),
-      },
-      orderBy: { rank: 'asc' },
-      take: limit,
-      cacheStrategy: { ttl: 300 },
-    });
+    // Get top titles from the latest week
+    const topRankings = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findMany({
+        where: {
+          weekStart: latestWeek,
+          ...(categoryFilter && { category: categoryFilter }),
+        },
+        orderBy: { rank: 'asc' },
+        take: limit,
+      })
+    );
 
     const titleIds = topRankings.map(t => t.titleId);
 
-    // Fetch title details and historical data in parallel (cached)
-    const [titlesData, historicalData] = await Promise.all([
-      prisma.title.findMany({
-        where: { id: { in: titleIds } },
-        select: { id: true, canonicalName: true, type: true },
-        cacheStrategy: { ttl: 300 },
-      }),
-      prisma.netflixWeeklyGlobal.findMany({
-        where: {
-          titleId: { in: titleIds },
-          weekStart: { in: weekStarts },
-          ...(categoryFilter && { category: categoryFilter }),
-        },
-        orderBy: { weekStart: 'asc' },
-        cacheStrategy: { ttl: 300 },
-      }),
-    ]);
+    // Fetch title details and historical data in parallel
+    const [titlesData, historicalData] = titleIds.length > 0
+      ? await withRetry(() =>
+          Promise.all([
+            prisma.title.findMany({
+              where: { id: { in: titleIds } },
+              select: { id: true, canonicalName: true, type: true },
+            }),
+            prisma.netflixWeeklyGlobal.findMany({
+              where: {
+                titleId: { in: titleIds },
+                weekStart: { in: weekStarts },
+                ...(categoryFilter && { category: categoryFilter }),
+              },
+              orderBy: { weekStart: 'asc' },
+            }),
+          ])
+        )
+      : [[], []];
     const titleMap = new Map(titlesData.map(t => [t.id, t]));
 
     // Build chart data structure
@@ -145,8 +149,6 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 

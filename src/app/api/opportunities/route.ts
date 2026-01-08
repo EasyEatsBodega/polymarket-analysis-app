@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { TitleType } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import prisma, { withRetry } from "@/lib/prisma";
 import {
   calculateModelProbability,
   calculateEdge,
@@ -120,11 +120,12 @@ export async function GET(request: NextRequest) {
     const netflixCategory = categoryParam ? categoryMap[categoryParam] : null;
 
     // 1. Get the most recent week with data
-    const latestWeek = await prisma.netflixWeeklyGlobal.findFirst({
-      orderBy: { weekStart: "desc" },
-      select: { weekStart: true },
-      cacheStrategy: { ttl: 300 },
-    });
+    const latestWeek = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findFirst({
+        orderBy: { weekStart: "desc" },
+        select: { weekStart: true },
+      })
+    );
 
     if (!latestWeek) {
       return NextResponse.json({
@@ -141,57 +142,62 @@ export async function GET(request: NextRequest) {
     // 2. Fetch current week Netflix rankings
     const titleWhereClause = type ? { type } : {};
 
-    const currentWeekData = await prisma.netflixWeeklyGlobal.findMany({
-      where: {
-        weekStart,
-        title: titleWhereClause,
-        ...(netflixCategory && { category: netflixCategory }),
-      },
-      select: {
-        titleId: true,
-        rank: true,
-        views: true,
-        category: true,
-      },
-      orderBy: { rank: "asc" },
-      take: limit * 2,
-      cacheStrategy: { ttl: 300 },
-    });
+    const currentWeekData = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findMany({
+        where: {
+          weekStart,
+          title: titleWhereClause,
+          ...(netflixCategory && { category: netflixCategory }),
+        },
+        select: {
+          titleId: true,
+          rank: true,
+          views: true,
+          category: true,
+        },
+        orderBy: { rank: "asc" },
+        take: limit * 2,
+      })
+    );
 
     // 3. Get previous week data
-    const previousWeekData = await prisma.netflixWeeklyGlobal.findMany({
-      where: { weekStart: previousWeekStart },
-      select: { titleId: true, rank: true },
-      cacheStrategy: { ttl: 300 },
-    });
+    const previousWeekData = await withRetry(() =>
+      prisma.netflixWeeklyGlobal.findMany({
+        where: { weekStart: previousWeekStart },
+        select: { titleId: true, rank: true },
+      })
+    );
     const previousMap = new Map(previousWeekData.map((p) => [p.titleId, p.rank]));
 
     // 4. Get title IDs and fetch related data
     const titleIds = currentWeekData.map((d) => d.titleId);
 
-    const [titles, forecasts] = await Promise.all([
-      prisma.title.findMany({
-        where: { id: { in: titleIds } },
-        select: { id: true, canonicalName: true, type: true, aliases: true },
-        cacheStrategy: { ttl: 300 },
-      }),
-      prisma.forecastWeekly.findMany({
-        where: {
-          titleId: { in: titleIds },
-          target: "RANK",
-        },
-        select: {
-          titleId: true,
-          p10: true,
-          p50: true,
-          p90: true,
-          explainJson: true,
-          weekStart: true,
-        },
-        orderBy: { weekStart: "desc" },
-        cacheStrategy: { ttl: 300 },
-      }),
-    ]);
+    // Guard against empty arrays (Prisma can throw "null pointer" errors with empty IN clauses)
+    const [titles, forecasts] = titleIds.length > 0
+      ? await withRetry(() =>
+          Promise.all([
+            prisma.title.findMany({
+              where: { id: { in: titleIds } },
+              select: { id: true, canonicalName: true, type: true, aliases: true },
+            }),
+            prisma.forecastWeekly.findMany({
+              where: {
+                titleId: { in: titleIds },
+                target: "RANK",
+              },
+              select: {
+                titleId: true,
+                p10: true,
+                p50: true,
+                p90: true,
+                explainJson: true,
+                weekStart: true,
+              },
+              orderBy: { weekStart: "desc" },
+            }),
+          ])
+        )
+      : [[], []];
 
     const titleMap = new Map(titles.map((t) => [t.id, t]));
 
@@ -230,10 +236,11 @@ export async function GET(request: NextRequest) {
 
     // 5b. Fetch ALL titles from database for market matching
     // (not just titles in the filtered category, since Polymarket markets span categories)
-    const allTitles = await prisma.title.findMany({
-      select: { id: true, canonicalName: true, type: true, aliases: true },
-      cacheStrategy: { ttl: 300 },
-    });
+    const allTitles = await withRetry(() =>
+      prisma.title.findMany({
+        select: { id: true, canonicalName: true, type: true, aliases: true },
+      })
+    );
 
     // Build market probability map using ALL titles
     const titleCache = buildTitleCache(allTitles);
@@ -357,33 +364,40 @@ export async function GET(request: NextRequest) {
     // These are titles with polymarket markets but no current Netflix data
     const existingTitleIds = new Set(opportunities.map(o => o.id));
 
-    // Get pre-release titles with polymarket external IDs and forecasts
-    const preReleaseTitles = await prisma.title.findMany({
-      where: {
-        externalIds: { some: { provider: 'polymarket' } },
-        id: { notIn: Array.from(existingTitleIds) },
-      },
-      select: { id: true, canonicalName: true, type: true },
-      cacheStrategy: { ttl: 300 },
-    });
+    // Get all titles with polymarket external IDs, then filter in JS to avoid Prisma notIn issues
+    const allPolymarketTitles = await withRetry(() =>
+      prisma.title.findMany({
+        where: {
+          externalIds: { some: { provider: 'polymarket' } },
+        },
+        select: { id: true, canonicalName: true, type: true },
+      })
+    );
+
+    // Filter out titles that are already in opportunities (JS filter instead of SQL notIn)
+    const preReleaseTitles = allPolymarketTitles.filter(t => !existingTitleIds.has(t.id));
 
     // Get forecasts for pre-release titles
-    const preReleaseForecasts = await prisma.forecastWeekly.findMany({
-      where: {
-        titleId: { in: preReleaseTitles.map(t => t.id) },
-        target: "RANK",
-      },
-      select: {
-        titleId: true,
-        p10: true,
-        p50: true,
-        p90: true,
-        explainJson: true,
-        weekStart: true,
-      },
-      orderBy: { weekStart: "desc" },
-      cacheStrategy: { ttl: 300 },
-    });
+    const preReleaseTitleIds = preReleaseTitles.map(t => t.id);
+    const preReleaseForecasts = preReleaseTitleIds.length > 0
+      ? await withRetry(() =>
+          prisma.forecastWeekly.findMany({
+            where: {
+              titleId: { in: preReleaseTitleIds },
+              target: "RANK",
+            },
+            select: {
+              titleId: true,
+              p10: true,
+              p50: true,
+              p90: true,
+              explainJson: true,
+              weekStart: true,
+            },
+            orderBy: { weekStart: "desc" },
+          })
+        )
+      : [];
 
     // Build forecast map for pre-release titles
     const preReleaseForecastMap = new Map<

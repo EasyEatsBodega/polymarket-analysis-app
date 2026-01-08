@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import SignalIndicator, { Signal, SignalStrength } from "./SignalIndicator";
 import RankForecast from "./RankForecast";
 import EdgeComparison from "./EdgeComparison";
@@ -74,17 +75,18 @@ export default function OpportunityCard({ data, compact = false }: OpportunityCa
   }
 
   return (
-    <div className="bg-white border border-dust-grey rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-dust-grey bg-gray-50">
-        <div className="flex items-center gap-2">
-          <TypeBadge type={data.type} />
-          <h3 className="font-semibold text-gunmetal truncate max-w-[200px]" title={data.title}>
-            {data.title}
-          </h3>
+    <Link href={`/netflix/${data.id}`} className="block">
+      <div className="bg-white border border-dust-grey rounded-lg shadow-sm hover:shadow-md hover:border-pine-blue transition-all overflow-hidden cursor-pointer">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-dust-grey bg-gray-50">
+          <div className="flex items-center gap-2">
+            <TypeBadge type={data.type} />
+            <h3 className="font-semibold text-gunmetal truncate max-w-[200px] group-hover:text-pine-blue" title={data.title}>
+              {data.title}
+            </h3>
+          </div>
+          <SignalIndicator signal={data.signal} strength={data.signalStrength} />
         </div>
-        <SignalIndicator signal={data.signal} strength={data.signalStrength} />
-      </div>
 
       {/* Body */}
       <div className="p-4 space-y-4">
@@ -130,6 +132,7 @@ export default function OpportunityCard({ data, compact = false }: OpportunityCa
               href={data.polymarketUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="inline-flex items-center gap-1 text-sm text-pine-blue hover:text-pine-blue/80 font-medium"
             >
               Trade on Polymarket
@@ -140,7 +143,8 @@ export default function OpportunityCard({ data, compact = false }: OpportunityCa
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </Link>
   );
 }
 
@@ -149,7 +153,8 @@ export default function OpportunityCard({ data, compact = false }: OpportunityCa
  */
 function OpportunityCardCompact({ data }: { data: OpportunityData }) {
   return (
-    <div className="flex items-center gap-4 p-3 bg-white border border-dust-grey rounded-lg hover:bg-gray-50 transition-colors">
+    <Link href={`/netflix/${data.id}`} className="block">
+      <div className="flex items-center gap-4 p-3 bg-white border border-dust-grey rounded-lg hover:bg-gray-50 hover:border-pine-blue transition-all cursor-pointer">
       {/* Rank */}
       <div className="text-center min-w-[50px]">
         <span className="text-2xl font-bold text-gunmetal">#{data.currentRank ?? "?"}</span>
@@ -186,6 +191,7 @@ function OpportunityCardCompact({ data }: { data: OpportunityData }) {
 
       {/* Signal */}
       <SignalIndicator signal={data.signal} strength={data.signalStrength} size="sm" />
-    </div>
+      </div>
+    </Link>
   );
 }
