@@ -11,6 +11,8 @@ import { ForecastTarget, Prisma } from '@prisma/client';
 import { SimpleLinearRegression } from 'ml-regression-simple-linear';
 import { standardDeviation } from 'simple-statistics';
 import { TitleFeatures, buildTitleFeatures, getMomentumWeights, MomentumBreakdown } from './featureBuilder';
+import { getCreatorMomentumBoost } from './creatorTrackRecord';
+import { generateMarketThesis } from './marketThesis';
 
 import prisma from '@/lib/prisma';
 
@@ -27,7 +29,42 @@ type NetflixWeeklyGlobalRankSelect = Prisma.NetflixWeeklyGlobalGetPayload<{
 type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 
 // Model version for tracking
-export const MODEL_VERSION = '1.0.0';
+// v1.1.0: Enhanced pre-release model with creator track record + star power
+// v1.2.0: Added FlixPatrol daily rank integration for current performance
+export const MODEL_VERSION = '1.2.0';
+
+/**
+ * Get the most recent FlixPatrol daily rank for a title
+ * Returns rank 1-10 if currently charting, null otherwise
+ */
+async function getLatestFlixPatrolRank(titleId: string): Promise<{
+  rank: number;
+  date: Date;
+  region: string;
+} | null> {
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+  // Get most recent FlixPatrol daily entry for this title
+  const latest = await prisma.flixPatrolDaily.findFirst({
+    where: {
+      titleId,
+      date: { gte: threeDaysAgo },
+    },
+    orderBy: { date: 'desc' },
+    select: { rank: true, date: true, region: true },
+  });
+
+  if (latest && latest.rank <= 10) {
+    return {
+      rank: latest.rank,
+      date: latest.date,
+      region: latest.region,
+    };
+  }
+
+  return null;
+}
 
 export interface Forecast {
   titleId: string;
@@ -49,6 +86,15 @@ export interface ForecastExplanation {
   historicalPattern: string;
   confidence: 'low' | 'medium' | 'high';
   momentumBreakdown: MomentumBreakdown | null;
+  // New fields for enhanced pre-release forecasting
+  creatorBoost?: number;
+  creatorName?: string;
+  creatorReason?: string;
+  starPowerBoost?: number;
+  starPowerScore?: number;
+  // FlixPatrol current ranking
+  currentFlixPatrolRank?: number;
+  currentFlixPatrolDate?: string;
 }
 
 interface HistoricalDataPoint {
@@ -356,13 +402,29 @@ export async function generateViewsForecast(
 
 /**
  * Generate pre-release forecast for titles without Netflix history
- * Uses signal data (Google Trends, Wikipedia) to estimate potential ranking
- * Falls back to neutral defaults if no signals available
+ *
+ * ENHANCED MODEL (v1.1):
+ * Uses multiple factors weighted by predictive power:
+ * - Creator track record (30%): Harlan Coben = 90% #1 hit rate
+ * - Star power (25%): A-list cast significantly boosts viewership
+ * - Google Trends (20%): Pre-release search interest
+ * - Wikipedia views (15%): Article traffic as buzz indicator
+ * - Base rate (10%): Default expectation for new releases
+ *
+ * Falls back to neutral defaults if no signals available.
  */
 export async function generatePreReleaseForecast(
   titleId: string,
   targetWeekStart: Date
 ): Promise<Forecast | null> {
+  // Get title info for thesis generation
+  const title = await prisma.title.findUnique({
+    where: { id: titleId },
+    select: { canonicalName: true, type: true },
+  });
+
+  if (!title) return null;
+
   // Get recent signals for this title (last 7 days)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -387,55 +449,121 @@ export async function generatePreReleaseForecast(
     ? wikiSignals.reduce((sum: number, s: DailySignalResult) => sum + s.value, 0) / wikiSignals.length
     : null;
 
-  // Calculate momentum score from signals (no rank data)
-  const weights = await getMomentumWeights();
-  let momentumScore = 50; // Default neutral
-  let confidence: 'low' | 'medium' | 'high' = 'low'; // Default to low if no signals
+  // === NEW: Get creator track record boost ===
+  const creatorInfo = getCreatorMomentumBoost(title.canonicalName);
 
-  if (avgTrends !== null || avgWiki !== null) {
-    let score = 0;
+  // === NEW: Get current FlixPatrol daily rank ===
+  // If a title is ALREADY charting, this is the strongest signal
+  const currentFlixPatrol = await getLatestFlixPatrolRank(titleId);
+
+  // === NEW: Get star power from MarketThesis ===
+  let starPowerScore = 50; // Default neutral
+  try {
+    const thesis = await generateMarketThesis(
+      title.canonicalName,
+      title.type as 'MOVIE' | 'SHOW',
+      { trendsScore: avgTrends ?? undefined }
+    );
+    starPowerScore = thesis.starPowerScore;
+  } catch (error) {
+    console.error(`[generatePreReleaseForecast] Failed to get star power for ${title.canonicalName}:`, error);
+  }
+
+  // === ENHANCED MOMENTUM CALCULATION ===
+  // If title is ALREADY charting on FlixPatrol, use that as primary signal
+  // Otherwise use weighted model of other factors
+
+  let momentumScore: number;
+  let confidence: 'low' | 'medium' | 'high' = 'low';
+
+  if (currentFlixPatrol) {
+    // TITLE IS ALREADY CHARTING - this is the strongest signal!
+    // Convert rank to momentum: #1 = 100, #2 = 95, #3 = 90, etc.
+    momentumScore = 100 - (currentFlixPatrol.rank - 1) * 5;
+    momentumScore = Math.max(50, momentumScore); // Floor at 50 for any charting title
+    confidence = 'high'; // Actually charting = high confidence
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (${currentFlixPatrol.region})`);
+  } else {
+    // Not currently charting - use weighted model
+    const weights = {
+      creatorTrackRecord: 0.30,  // Creator history is THE biggest predictor
+      starPower: 0.25,           // A-list cast draws viewers
+      trends: 0.20,              // Pre-release search interest
+      wikipedia: 0.15,           // Article traffic
+      baseRate: 0.10,            // Default expectation
+    };
+
+    let totalScore = 0;
     let totalWeight = 0;
 
+    // Creator track record (most important signal)
+    if (creatorInfo.boost > 0) {
+      // Creator boost is 0-45 based on hit rate, scale to 0-100
+      const creatorScore = Math.min(100, (creatorInfo.boost / 45) * 100);
+      totalScore += creatorScore * weights.creatorTrackRecord;
+      totalWeight += weights.creatorTrackRecord;
+      confidence = 'high'; // Creator track record gives high confidence
+    }
+
+    // Star power
+    if (starPowerScore > 0) {
+      totalScore += starPowerScore * weights.starPower;
+      totalWeight += weights.starPower;
+      if (starPowerScore >= 70 && confidence !== 'high') {
+        confidence = 'medium';
+      }
+    }
+
+    // Google Trends (already 0-100)
     if (avgTrends !== null) {
-      // Google Trends is already 0-100
-      score += avgTrends * weights.trendsWeight;
-      totalWeight += weights.trendsWeight;
+      totalScore += avgTrends * weights.trends;
+      totalWeight += weights.trends;
+      if (confidence === 'low') confidence = 'medium';
     }
 
+    // Wikipedia views (log normalized)
     if (avgWiki !== null && avgWiki > 0) {
-      // Normalize Wikipedia views using log scale
       const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
-      score += logNormalized * weights.wikipediaWeight;
-      totalWeight += weights.wikipediaWeight;
+      totalScore += logNormalized * weights.wikipedia;
+      totalWeight += weights.wikipedia;
     }
 
-    if (totalWeight > 0) {
-      momentumScore = Math.round(score / totalWeight);
-      confidence = 'medium'; // Medium confidence if we have signals
-    }
+    // Base rate (default 50 for unknown titles)
+    totalScore += 50 * weights.baseRate;
+    totalWeight += weights.baseRate;
+
+    // Calculate final momentum score
+    momentumScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 50;
   }
 
-  // Estimate rank potential based on momentum
-  // High momentum (80+) suggests strong #1 potential
-  // Low momentum (<40) suggests unlikely to chart high
+  // === ENHANCED RANK PREDICTION ===
+  // Higher thresholds now that we have better signals
   let predictedRank: number;
-  if (momentumScore >= 80) {
-    predictedRank = 1;
-  } else if (momentumScore >= 70) {
+  if (momentumScore >= 85) {
+    predictedRank = 1; // Very high confidence for #1
+  } else if (momentumScore >= 75) {
     predictedRank = 2;
-  } else if (momentumScore >= 60) {
+  } else if (momentumScore >= 65) {
     predictedRank = 3;
-  } else if (momentumScore >= 50) {
-    predictedRank = 5;
-  } else if (momentumScore >= 40) {
-    predictedRank = 7;
+  } else if (momentumScore >= 55) {
+    predictedRank = 4;
+  } else if (momentumScore >= 45) {
+    predictedRank = 6;
+  } else if (momentumScore >= 35) {
+    predictedRank = 8;
   } else {
-    predictedRank = 9;
+    predictedRank = 10;
   }
 
-  // Calculate uncertainty - higher for pre-release (less data)
-  // Even higher if no signals available
-  const uncertainty = signals.length > 0 ? 2.5 : 3.5;
+  // Calculate uncertainty based on signal availability
+  // More signals = lower uncertainty
+  let uncertainty = 3.5; // Base high uncertainty
+  if (currentFlixPatrol) uncertainty -= 1.5; // Currently charting = very low uncertainty
+  if (creatorInfo.boost > 0) uncertainty -= 1.0; // Creator track record reduces uncertainty significantly
+  if (starPowerScore >= 60) uncertainty -= 0.5;
+  if (avgTrends !== null) uncertainty -= 0.3;
+  if (avgWiki !== null) uncertainty -= 0.2;
+  uncertainty = Math.max(0.5, uncertainty); // Minimum 0.5 rank uncertainty
 
   // Generate percentile forecasts
   const p50 = predictedRank;
@@ -444,6 +572,9 @@ export async function generatePreReleaseForecast(
 
   const weekEnd = new Date(targetWeekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
+
+  // Calculate star power boost contribution (for explanation)
+  const starPowerBoost = starPowerScore > 50 ? Math.round((starPowerScore - 50) / 5) : 0;
 
   return {
     titleId,
@@ -462,6 +593,15 @@ export async function generatePreReleaseForecast(
       historicalPattern: 'pre_release',
       confidence,
       momentumBreakdown: null,
+      // New explanation fields
+      creatorBoost: creatorInfo.boost,
+      creatorName: creatorInfo.creator ?? undefined,
+      creatorReason: creatorInfo.reason ?? undefined,
+      starPowerBoost,
+      starPowerScore,
+      // FlixPatrol current ranking
+      currentFlixPatrolRank: currentFlixPatrol?.rank,
+      currentFlixPatrolDate: currentFlixPatrol?.date.toISOString().split('T')[0],
     },
   };
 }
