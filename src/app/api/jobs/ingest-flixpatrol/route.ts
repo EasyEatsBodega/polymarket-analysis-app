@@ -1,14 +1,17 @@
 /**
  * FlixPatrol Daily Rankings Ingestion Endpoint
  *
- * Triggered by Vercel Cron to scrape daily Netflix Top 10 from FlixPatrol.
+ * Triggered by Vercel Cron to fetch daily Netflix Top 10 from FlixPatrol API.
+ * Falls back to HTML scraping if API fails.
  *
  * Query params:
  * - date: Optional date to ingest (YYYY-MM-DD format)
  * - key: API key for manual triggers
+ * - method: 'api' (default) or 'scrape' to force method
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { ingestFlixPatrolAPI } from '@/jobs/ingestFlixPatrolAPI';
 import { ingestFlixPatrol } from '@/jobs/ingestFlixPatrol';
 import prisma from '@/lib/prisma';
 
@@ -37,6 +40,7 @@ export async function GET(request: NextRequest) {
   }
 
   const dateParam = request.nextUrl.searchParams.get('date') || undefined;
+  const methodParam = request.nextUrl.searchParams.get('method') || 'api';
   const startTime = Date.now();
 
   // Create job run record
@@ -48,9 +52,24 @@ export async function GET(request: NextRequest) {
   });
 
   try {
-    console.log('Starting FlixPatrol ingestion...');
+    console.log(`Starting FlixPatrol ingestion (method: ${methodParam})...`);
 
-    const result = await ingestFlixPatrol(dateParam);
+    let result;
+    let usedMethod = methodParam;
+
+    // Try API first, fall back to scraping if API fails
+    if (methodParam === 'api' && process.env.FLIXPATROL_API_KEY) {
+      try {
+        result = await ingestFlixPatrolAPI(dateParam);
+      } catch (apiError) {
+        console.warn('API method failed, falling back to scraping:', apiError);
+        result = await ingestFlixPatrol(dateParam);
+        usedMethod = 'scrape-fallback';
+      }
+    } else {
+      result = await ingestFlixPatrol(dateParam);
+      usedMethod = 'scrape';
+    }
     const duration = Date.now() - startTime;
 
     // Update job run
@@ -62,6 +81,7 @@ export async function GET(request: NextRequest) {
         detailsJson: {
           durationMs: duration,
           triggeredBy: isManual ? 'manual' : 'cron',
+          method: usedMethod,
           ...result,
         },
       },
@@ -71,6 +91,7 @@ export async function GET(request: NextRequest) {
       success: true,
       durationMs: duration,
       triggeredBy: isManual ? 'manual' : 'cron',
+      method: usedMethod,
       ...result,
     });
   } catch (error) {
