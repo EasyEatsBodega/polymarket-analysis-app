@@ -60,6 +60,15 @@ model Title {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Ratings from OMDB/IMDB/Rotten Tomatoes
+  imdbId           String?
+  imdbRating       Float?    // 0-10 scale
+  imdbVotes        Int?
+  rtCriticScore    Int?      // 0-100 (Tomatometer)
+  metascore        Int?      // 0-100 (Metacritic)
+  rated            String?   // PG-13, R, TV-MA, etc.
+  ratingsUpdatedAt DateTime?
+
   weeklyGlobal       NetflixWeeklyGlobal[]
   weeklyUS           NetflixWeeklyUS[]
   dailySignals       DailySignal[]

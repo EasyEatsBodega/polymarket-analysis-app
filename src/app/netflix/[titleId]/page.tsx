@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/Header";
 import { MarketThesis } from "@/components/netflix/MarketThesis";
+import { TitleRatings } from "@/components/netflix/TitleRatings";
 
 interface RankData {
   week: string;
@@ -86,12 +87,22 @@ interface FlixPatrolData {
   social: SocialData[];
 }
 
+interface RatingsData {
+  imdbId: string | null;
+  imdbRating: number | null;
+  imdbVotes: number | null;
+  rtCriticScore: number | null;
+  metascore: number | null;
+  rated: string | null;
+}
+
 interface TitleData {
   id: string;
   canonicalName: string;
   type: "SHOW" | "MOVIE";
   tmdbId: string | null;
   aliases: string[];
+  ratings: RatingsData | null;
   rankings: {
     global: RankData[];
     us: RankData[];
@@ -787,6 +798,13 @@ export default function TitleDetailPage() {
         <section className="mb-8">
           <MarketThesis titleId={title.id} titleName={title.canonicalName} />
         </section>
+
+        {/* Critic Ratings */}
+        {title.ratings && (
+          <section className="mb-8">
+            <TitleRatings ratings={title.ratings} />
+          </section>
+        )}
 
         {/* Rankings Section - Combined with Forecasts */}
         <section className="mb-8">

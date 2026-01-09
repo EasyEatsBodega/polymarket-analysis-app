@@ -285,6 +285,14 @@ export async function GET(
         type: title.type,
         tmdbId: title.tmdbId,
         aliases: title.aliases,
+        ratings: {
+          imdbId: title.imdbId,
+          imdbRating: title.imdbRating,
+          imdbVotes: title.imdbVotes,
+          rtCriticScore: title.rtCriticScore,
+          metascore: title.metascore,
+          rated: title.rated,
+        },
         rankings: {
           global: globalRanks,
           us: usRanks,
