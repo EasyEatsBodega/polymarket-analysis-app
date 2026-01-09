@@ -1,21 +1,28 @@
 /**
  * Creator Track Record Database
  *
- * Maps known creators/showrunners to their Netflix success rate.
+ * Maps known creators/showrunners/authors to their Netflix success rate.
  * This is the single biggest predictor Polymarket traders use that our model was missing.
  *
- * Track record = historical % of shows that reached #1 on Netflix
+ * Track record = historical % of shows/movies that reached #1 on Netflix
+ *
+ * Covers:
+ * - TV Showrunners (Harlan Coben, Shonda Rhimes, etc.)
+ * - Authors with Netflix adaptations (Alice Feeney, etc.)
+ * - Movie Directors/Producers (Netflix Film division)
  */
 
 export interface CreatorRecord {
-  /** Historical rate of shows reaching #1 (0-1) */
+  /** Historical rate of content reaching #1 (0-1) */
   hitRate: number;
-  /** Number of Netflix shows to date */
+  /** Number of Netflix titles to date */
   showCount: number;
-  /** Notable Netflix shows */
+  /** Notable Netflix titles */
   notableShows: string[];
   /** Why this creator is a proven draw */
   reason: string;
+  /** Content type: 'TV', 'MOVIE', or 'BOTH' */
+  contentType?: 'TV' | 'MOVIE' | 'BOTH';
 }
 
 /**
@@ -89,6 +96,113 @@ export const CREATOR_TRACK_RECORD: Record<string, CreatorRecord> = {
     showCount: 3,
     notableShows: ['Mindhunter', 'House of Cards'],
     reason: 'Prestige director. Quality draw but not always mass appeal.',
+    contentType: 'BOTH',
+  },
+
+  // =================================================================
+  // AUTHORS WITH NETFLIX ADAPTATIONS
+  // =================================================================
+
+  'Alice Feeney': {
+    hitRate: 0.75,
+    showCount: 2,
+    notableShows: ['His & Hers', 'Rock Paper Scissors'],
+    reason: 'Bestselling thriller author. His & Hers has A-list cast (Thompson, Bernthal).',
+    contentType: 'TV',
+  },
+  'Colleen Hoover': {
+    hitRate: 0.70,
+    showCount: 3,
+    notableShows: ['It Ends With Us', 'Verity', 'Ugly Love'],
+    reason: 'BookTok phenomenon. Massive built-in fanbase for adaptations.',
+    contentType: 'MOVIE',
+  },
+  'Taylor Jenkins Reid': {
+    hitRate: 0.65,
+    showCount: 2,
+    notableShows: ['Daisy Jones & The Six', 'The Seven Husbands of Evelyn Hugo'],
+    reason: 'Bestselling author with strong adaptation track record.',
+    contentType: 'TV',
+  },
+  'Stephen King': {
+    hitRate: 0.55,
+    showCount: 15,
+    notableShows: ['1922', 'Gerald\'s Game', 'In the Tall Grass', 'Mr. Harrigan\'s Phone'],
+    reason: 'Horror master. Adaptations have built-in audience but variable quality.',
+    contentType: 'BOTH',
+  },
+
+  // =================================================================
+  // MOVIE DIRECTORS/PRODUCERS
+  // =================================================================
+
+  'Zack Snyder': {
+    hitRate: 0.80,
+    showCount: 4,
+    notableShows: ['Army of the Dead', 'Rebel Moon', 'Army of Thieves'],
+    reason: 'Netflix deal. Massive fan following, films always chart high.',
+    contentType: 'MOVIE',
+  },
+  'The Russo Brothers': {
+    hitRate: 0.85,
+    showCount: 3,
+    notableShows: ['The Gray Man', 'Extraction', 'Extraction 2'],
+    reason: 'MCU directors. Extraction 2 was Netflix\'s biggest 2023 film.',
+    contentType: 'MOVIE',
+  },
+  'Sam Hargrave': {
+    hitRate: 0.90,
+    showCount: 2,
+    notableShows: ['Extraction', 'Extraction 2'],
+    reason: 'Action director. Extraction films dominated Netflix charts.',
+    contentType: 'MOVIE',
+  },
+  'Michael Bay': {
+    hitRate: 0.70,
+    showCount: 2,
+    notableShows: ['6 Underground', 'Ambulance'],
+    reason: 'Action blockbuster director. High viewership guaranteed.',
+    contentType: 'MOVIE',
+  },
+  'Adam McKay': {
+    hitRate: 0.75,
+    showCount: 2,
+    notableShows: ['Don\'t Look Up', 'The Big Short'],
+    reason: 'Awards-caliber director with star-studded casts.',
+    contentType: 'MOVIE',
+  },
+  'Rian Johnson': {
+    hitRate: 0.85,
+    showCount: 2,
+    notableShows: ['Glass Onion', 'Knives Out'],
+    reason: 'Knives Out franchise is Netflix exclusive. Glass Onion was #1 for weeks.',
+    contentType: 'MOVIE',
+  },
+  'Noah Baumbach': {
+    hitRate: 0.60,
+    showCount: 3,
+    notableShows: ['Marriage Story', 'White Noise', 'The Meyerowitz Stories'],
+    reason: 'Prestige director with Netflix deal. Awards buzz drives viewership.',
+    contentType: 'MOVIE',
+  },
+
+  // =================================================================
+  // PRODUCTION COMPANIES WITH NETFLIX DEALS
+  // =================================================================
+
+  'Happy Madison': {
+    hitRate: 0.95,
+    showCount: 12,
+    notableShows: ['Murder Mystery', 'Hubie Halloween', 'The Wrong Missy', 'Hustle'],
+    reason: 'Adam Sandler\'s company. Every film charts #1. Most reliable performer.',
+    contentType: 'MOVIE',
+  },
+  'AGBO Films': {
+    hitRate: 0.85,
+    showCount: 4,
+    notableShows: ['The Gray Man', 'Extraction', 'Extraction 2', 'Citadel'],
+    reason: 'Russo Brothers\' company. Action blockbusters dominate charts.',
+    contentType: 'BOTH',
   },
 };
 
@@ -97,6 +211,10 @@ export const CREATOR_TRACK_RECORD: Record<string, CreatorRecord> = {
  * This handles cases where the creator isn't in the title name
  */
 export const TITLE_CREATOR_MAP: Record<string, string> = {
+  // =================================================================
+  // TV SHOWRUNNERS
+  // =================================================================
+
   // Harlan Coben adaptations
   'Run Away': 'Harlan Coben',
   'Fool Me Once': 'Harlan Coben',
@@ -137,6 +255,76 @@ export const TITLE_CREATOR_MAP: Record<string, string> = {
   // Greg Berlanti
   'You': 'Greg Berlanti',
   'Griselda': 'Greg Berlanti',
+
+  // =================================================================
+  // AUTHOR ADAPTATIONS (TV)
+  // =================================================================
+
+  // Alice Feeney
+  'His & Hers': 'Alice Feeney',
+  'His and Hers': 'Alice Feeney',
+  'Rock Paper Scissors': 'Alice Feeney',
+
+  // Taylor Jenkins Reid
+  'Daisy Jones': 'Taylor Jenkins Reid',
+  'Seven Husbands': 'Taylor Jenkins Reid',
+  'Evelyn Hugo': 'Taylor Jenkins Reid',
+
+  // =================================================================
+  // MOVIE DIRECTORS
+  // =================================================================
+
+  // Zack Snyder
+  'Army of the Dead': 'Zack Snyder',
+  'Rebel Moon': 'Zack Snyder',
+  'Army of Thieves': 'Zack Snyder',
+
+  // Russo Brothers / AGBO
+  'The Gray Man': 'The Russo Brothers',
+  'Extraction': 'The Russo Brothers',
+  'Citadel': 'AGBO Films',
+
+  // Rian Johnson
+  'Glass Onion': 'Rian Johnson',
+  'Knives Out': 'Rian Johnson',
+
+  // Adam McKay
+  "Don't Look Up": 'Adam McKay',
+
+  // Noah Baumbach
+  'Marriage Story': 'Noah Baumbach',
+  'White Noise': 'Noah Baumbach',
+
+  // Michael Bay
+  '6 Underground': 'Michael Bay',
+
+  // =================================================================
+  // PRODUCTION COMPANY TITLES
+  // =================================================================
+
+  // Happy Madison (Adam Sandler)
+  'Murder Mystery': 'Happy Madison',
+  'Hubie Halloween': 'Happy Madison',
+  'The Wrong Missy': 'Happy Madison',
+  'Hustle': 'Happy Madison',
+  'You Are So Not Invited': 'Happy Madison',
+  'Leo': 'Happy Madison',
+
+  // =================================================================
+  // AUTHOR ADAPTATIONS (MOVIES)
+  // =================================================================
+
+  // Colleen Hoover
+  'It Ends With Us': 'Colleen Hoover',
+  'Verity': 'Colleen Hoover',
+  'Ugly Love': 'Colleen Hoover',
+
+  // Stephen King
+  "Gerald's Game": 'Stephen King',
+  '1922': 'Stephen King',
+  'In the Tall Grass': 'Stephen King',
+  "Mr. Harrigan's Phone": 'Stephen King',
+  'The Mist': 'Stephen King',
 };
 
 /**
