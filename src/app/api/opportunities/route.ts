@@ -265,7 +265,7 @@ export async function GET(request: NextRequest) {
     // 5. Fetch Polymarket data from our own API using the request origin
     // This works reliably in both local and production environments
     const origin = request.nextUrl.origin;
-    let polymarketData: { outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
+    let polymarketData: { category: string; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
 
     try {
       const polyUrl = `${origin}/api/polymarket-netflix`;
@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
       const polyJson = await polyResponse.json();
 
       if (polyJson.success) {
-        // Flatten all categories
+        // Flatten all categories but keep category info
         const markets = Array.isArray(polyJson.data)
           ? polyJson.data
           : Object.values(polyJson.data).flat();
@@ -296,13 +296,22 @@ export async function GET(request: NextRequest) {
     );
 
     // Build market probability map using ALL titles
+    // Filter markets to only those matching the requested category
     const titleCache = buildTitleCache(allTitles);
     const marketDataMap = new Map<
       string,
       { probability: number; polymarketUrl: string }
     >();
 
-    for (const market of polymarketData) {
+    // Only include markets from the requested category
+    // e.g., "shows-global" should only match against "shows-global" markets
+    const relevantMarkets = categoryParam
+      ? polymarketData.filter(m => m.category === categoryParam)
+      : polymarketData;
+
+    console.log('[opportunities] Filtering to category:', categoryParam, '- relevant markets:', relevantMarkets.length);
+
+    for (const market of relevantMarkets) {
       for (const outcome of market.outcomes || []) {
         if (outcome.name.toLowerCase() === "other") continue;
         const match = matchOutcomeToTitle(outcome.name, titleCache);
