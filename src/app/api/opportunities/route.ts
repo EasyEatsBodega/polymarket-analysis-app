@@ -14,6 +14,7 @@ import {
   generateReasoning,
 } from "@/lib/edgeCalculator";
 import { matchOutcomeToTitle, buildTitleCache } from "@/lib/marketMatcher";
+import { fetchAllPolymarketMarkets } from "@/lib/polymarketFetcher";
 
 export const dynamic = "force-dynamic";
 
@@ -247,31 +248,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Fetch Polymarket data - fetch ALL markets (not filtered by category)
-    // because Polymarket's "Global" markets include titles from all Netflix language categories
-    // Use VERCEL_URL in production, fall back to NEXT_PUBLIC_APP_URL or localhost
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+    // 5. Fetch Polymarket data directly from Polymarket API (not via internal HTTP call)
+    // This avoids serverless networking issues with localhost/VERCEL_URL
     let polymarketData: { outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
 
     try {
-      // Fetch all markets without category filter
-      const polyUrl = `${baseUrl}/api/polymarket-netflix`;
-      console.log('[opportunities] Fetching Polymarket data from:', polyUrl);
-      const polyResponse = await fetch(polyUrl, { next: { revalidate: 60 } });
-      const polyJson = await polyResponse.json();
-
-      if (polyJson.success) {
-        // Flatten all categories
-        const markets = Array.isArray(polyJson.data)
-          ? polyJson.data
-          : Object.values(polyJson.data).flat();
-        polymarketData = markets as typeof polymarketData;
-        console.log('[opportunities] Fetched', polymarketData.length, 'markets');
-      } else {
-        console.error('[opportunities] Polymarket API returned error:', polyJson);
-      }
+      console.log('[opportunities] Fetching Polymarket data directly from Polymarket API...');
+      const markets = await fetchAllPolymarketMarkets();
+      polymarketData = markets;
+      console.log('[opportunities] Fetched', polymarketData.length, 'markets from Polymarket');
     } catch (e) {
       // Polymarket fetch failed - continue without market data
       console.error('[opportunities] Polymarket fetch error:', e);
