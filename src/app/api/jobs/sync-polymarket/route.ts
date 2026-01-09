@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPolymarket } from '@/jobs/syncPolymarket';
+import { ingestNetflixRatings } from '@/jobs/ingestNetflixRatings';
 export const dynamic = 'force-dynamic';
 import prisma from '@/lib/prisma';
 
@@ -45,6 +46,17 @@ export async function GET(request: NextRequest) {
     console.log('Starting Polymarket sync via API...');
     const result = await syncPolymarket(pricesOnly);
 
+    // After sync, fetch ratings for any new Netflix titles
+    let ratingsResult = null;
+    if (!pricesOnly) {
+      console.log('Fetching ratings for Netflix market titles...');
+      try {
+        ratingsResult = await ingestNetflixRatings();
+      } catch (ratingsError) {
+        console.error('Ratings ingestion failed (non-fatal):', ratingsError);
+      }
+    }
+
     const duration = Date.now() - startTime;
 
     await prisma.jobRun.update({
@@ -58,6 +70,7 @@ export async function GET(request: NextRequest) {
           pricesOnly,
           ...result,
           errors: result.errors.slice(0, 100),
+          ratingsIngested: ratingsResult,
         },
       },
     });
@@ -75,6 +88,7 @@ export async function GET(request: NextRequest) {
         titleLinksCreated: result.titleLinksCreated,
         errorCount: result.errors.length,
       },
+      ratingsIngested: ratingsResult,
     });
   } catch (error) {
     const duration = Date.now() - startTime;
