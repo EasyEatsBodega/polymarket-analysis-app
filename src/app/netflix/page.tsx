@@ -3,7 +3,6 @@
 import { useState } from "react";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
 import RankTrendChart from "@/components/RankTrendChart";
-import WatchlistPanel from "@/components/WatchlistPanel";
 import Header from "@/components/Header";
 import OpportunityGrid from "@/components/OpportunityGrid";
 
@@ -20,7 +19,6 @@ const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; region: "us" | "gl
 export default function NetflixPage() {
   const [activeTab, setActiveTab] = useState<Tab>("shows-us");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showWatchlist, setShowWatchlist] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("rankings");
   const [minEdge, setMinEdge] = useState(10);
 
@@ -58,30 +56,6 @@ export default function NetflixPage() {
         </div>
 
         <div className="mt-8">
-          {/* Watchlist Section */}
-          <section className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <button
-                onClick={() => setShowWatchlist(!showWatchlist)}
-                className="flex items-center gap-2 text-xl font-semibold text-gunmetal hover:text-gray-700 transition-colors"
-              >
-                <svg
-                  className={`w-5 h-5 transition-transform ${showWatchlist ? "rotate-90" : ""}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                Coming Soon
-              </button>
-              <span className="text-sm text-gray-500">
-                Track releases before they hit Top 10
-              </span>
-            </div>
-            {showWatchlist && <WatchlistPanel limit={6} />}
-          </section>
-
           {/* Rank Trend Chart */}
           <section className="mb-8">
             <div className="flex justify-between items-center mb-4">
