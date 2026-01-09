@@ -15,6 +15,8 @@ import {
   setCachedMarkets,
   getMarketFromCache,
   clearMarketCache,
+  getLastKnownIds,
+  updateLastKnownIds,
 } from '@/lib/marketCache';
 
 export const dynamic = 'force-dynamic';
@@ -46,6 +48,7 @@ const HOT_RANGES: Record<string, { start: number; end: number }> = {
 };
 const EXTENDED_RANGE = { start: 400, end: 1500 };
 const SCAN_BATCH_SIZE = 50;
+const SMART_SCAN_RANGE = 20; // Scan +/- 20 around last known ID first
 
 interface PolymarketMarket {
   id: string;
@@ -194,9 +197,13 @@ async function scanRange(
 }
 
 /**
- * Discover a market by scanning ID ranges (slow, only used on cache miss)
+ * Discover a market by scanning ID ranges
+ * Uses "smart scan" - tries small range around last known ID first for fast cold starts
  */
-async function discoverMarket(basePattern: string): Promise<{
+async function discoverMarket(
+  basePattern: string,
+  lastKnownId: number | null
+): Promise<{
   id: number;
   slug: string;
   closed: boolean;
@@ -207,6 +214,36 @@ async function discoverMarket(basePattern: string): Promise<{
     return { id: 0, slug: basePattern, closed: false };
   }
 
+  // SMART SCAN: If we have a last known ID, try a small range around it first
+  // This makes cold starts ~10x faster (40 IDs vs 700+ IDs)
+  if (lastKnownId && lastKnownId > 0) {
+    console.log(`[polymarket-netflix] Smart scan: trying IDs ${lastKnownId - 5} to ${lastKnownId + SMART_SCAN_RANGE}`);
+    const smartResult = await scanRange(
+      basePattern,
+      Math.max(1, lastKnownId - 5), // Check slightly below (in case we're in between weeks)
+      lastKnownId + SMART_SCAN_RANGE  // Check ahead for new week's markets
+    );
+    if (smartResult && !smartResult.closed) {
+      console.log(`[polymarket-netflix] Smart scan found active market at ID ${smartResult.id}`);
+      return smartResult;
+    }
+    if (smartResult) {
+      // Found a closed market - check if there's a newer one just above
+      const nextRange = await scanRange(
+        basePattern,
+        smartResult.id + 1,
+        smartResult.id + 10
+      );
+      if (nextRange && !nextRange.closed) {
+        return nextRange;
+      }
+      // Return the closed one if no active found
+      return smartResult;
+    }
+  }
+
+  // FULL SCAN: Fall back to scanning full ranges (slower)
+  console.log(`[polymarket-netflix] Smart scan failed, falling back to full range scan`);
   const isMovie = basePattern.includes('movie');
   const hotRange = isMovie ? HOT_RANGES['movies'] : HOT_RANGES['shows'];
 
@@ -273,14 +310,18 @@ export async function GET(request: NextRequest) {
       ? MARKET_PATTERNS.filter(p => p.category === tab)
       : MARKET_PATTERNS;
 
-    // Try to use database cache (fast path)
-    const cache = await getCachedMarkets();
+    // Try to use database cache (fast path) and get last known IDs for smart scanning
+    const [cache, lastKnownIds] = await Promise.all([
+      getCachedMarkets(),
+      getLastKnownIds(),
+    ]);
     const useCache = cache && !refresh;
 
     if (useCache) {
       console.log('[polymarket-netflix] Using cached market slugs');
     } else {
-      console.log('[polymarket-netflix] Cache miss, will scan for markets');
+      const hasHints = Object.keys(lastKnownIds).length > 0;
+      console.log(`[polymarket-netflix] Cache miss, will scan for markets (smart scan hints: ${hasHints})`);
     }
 
     // Fetch markets - use cached slugs when available
@@ -299,10 +340,11 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Slow path: discover market by scanning
+      // Slow path: discover market by scanning (uses smart scan if we have last known ID)
       if (!slug) {
-        console.log(`[polymarket-netflix] Discovering market for ${config.basePattern}`);
-        const discovered = await discoverMarket(config.basePattern);
+        const lastKnownId = lastKnownIds[config.basePattern] || null;
+        console.log(`[polymarket-netflix] Discovering market for ${config.basePattern} (hint: ${lastKnownId})`);
+        const discovered = await discoverMarket(config.basePattern, lastKnownId);
         if (discovered) {
           slug = discovered.slug;
           marketId = discovered.id;
@@ -334,7 +376,11 @@ export async function GET(request: NextRequest) {
         }));
 
       if (discoveredMarkets.length > 0) {
-        await setCachedMarkets(discoveredMarkets);
+        // Save full cache and update last known IDs (for faster future cold starts)
+        await Promise.all([
+          setCachedMarkets(discoveredMarkets),
+          updateLastKnownIds(discoveredMarkets),
+        ]);
       }
     }
 

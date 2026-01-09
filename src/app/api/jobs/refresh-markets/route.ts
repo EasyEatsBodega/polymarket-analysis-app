@@ -8,7 +8,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { setCachedMarkets } from '@/lib/marketCache';
+import { setCachedMarkets, updateLastKnownIds } from '@/lib/marketCache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for market scanning
@@ -196,8 +196,12 @@ export async function GET() {
     }));
 
   if (marketsToCache.length > 0) {
-    await setCachedMarkets(marketsToCache);
-    console.log(`[refresh-markets] Saved ${marketsToCache.length} markets to database cache`);
+    // Save full cache and update last known IDs (for faster future cold starts)
+    await Promise.all([
+      setCachedMarkets(marketsToCache),
+      updateLastKnownIds(marketsToCache),
+    ]);
+    console.log(`[refresh-markets] Saved ${marketsToCache.length} markets to database cache and updated last known IDs`);
   }
 
   return NextResponse.json({
