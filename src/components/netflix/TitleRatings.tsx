@@ -34,7 +34,7 @@ export function TitleRatings({ ratings }: TitleRatingsProps) {
 
   return (
     <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-4">
-      <h3 className="text-sm font-medium text-slate-400 mb-3">Critic Ratings</h3>
+      <h3 className="text-sm font-medium text-slate-200 mb-3">Critic Ratings</h3>
 
       <div className="flex flex-wrap gap-4">
         {/* IMDB Rating */}
