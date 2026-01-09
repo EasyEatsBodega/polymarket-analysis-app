@@ -2,7 +2,7 @@
  * Ratings Ingestion Job
  *
  * Fetches IMDB ratings and Rotten Tomatoes scores from OMDB API
- * for all titles in the database.
+ * for Polymarket-linked titles only (by default).
  *
  * OMDB Free tier: 1,000 requests/day
  *
@@ -24,8 +24,9 @@ export async function ingestRatings(options?: {
   forceRefresh?: boolean;
   limit?: number;
   titleIds?: string[];
+  polymarketOnly?: boolean; // Default true - only fetch for Polymarket titles
 }): Promise<IngestResult> {
-  const { forceRefresh = false, limit, titleIds } = options ?? {};
+  const { forceRefresh = false, limit, titleIds, polymarketOnly = true } = options ?? {};
 
   const result: IngestResult = {
     processed: 0,
@@ -38,9 +39,12 @@ export async function ingestRatings(options?: {
   // Get titles to process
   let titles;
 
+  // Build base filter for Polymarket-linked titles
+  const polymarketFilter = polymarketOnly ? { marketLinks: { some: {} } } : {};
+
   if (titleIds && titleIds.length > 0) {
     titles = await prisma.title.findMany({
-      where: { id: { in: titleIds } },
+      where: { id: { in: titleIds }, ...polymarketFilter },
       orderBy: { updatedAt: 'desc' },
       take: limit ?? 50,
     });
@@ -51,6 +55,7 @@ export async function ingestRatings(options?: {
 
     titles = await prisma.title.findMany({
       where: {
+        ...polymarketFilter,
         OR: [
           { ratingsUpdatedAt: null },
           { ratingsUpdatedAt: { lt: staleDate } },
@@ -61,6 +66,7 @@ export async function ingestRatings(options?: {
     });
   } else {
     titles = await prisma.title.findMany({
+      where: polymarketFilter,
       orderBy: { updatedAt: 'desc' },
       take: limit ?? 50,
     });
