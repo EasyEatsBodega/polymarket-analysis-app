@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { verifyJobAuth } from '@/lib/jobAuth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -137,22 +138,10 @@ async function snapshotActiveMarketPrices(): Promise<SnapshotResult> {
 
 export async function GET(request: NextRequest) {
   try {
-    // Verify cron secret or admin key
-    const { searchParams } = request.nextUrl;
-    const providedKey = searchParams.get('key');
-    const cronSecret = process.env.CRON_SECRET;
-    const adminKey = process.env.ADMIN_API_KEY;
-
-    // Check authorization header for Vercel Cron
-    const authHeader = request.headers.get('authorization');
-    const isVercelCron = authHeader === `Bearer ${cronSecret}`;
-
-    // Validate access
-    if (!isVercelCron && providedKey !== adminKey && providedKey !== cronSecret) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+    // Use shared auth helper
+    const auth = verifyJobAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const result = await snapshotActiveMarketPrices();
@@ -188,10 +177,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: 'Snapshot failed' },
       { status: 500 }
     );
   }

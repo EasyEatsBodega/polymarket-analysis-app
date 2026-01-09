@@ -42,10 +42,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Netflix ratings ingestion error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: 'Netflix ratings ingestion failed' },
       { status: 500 }
     );
   }

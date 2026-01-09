@@ -9,30 +9,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncPolymarket } from '@/jobs/syncPolymarket';
 import { ingestNetflixRatings } from '@/jobs/ingestNetflixRatings';
 import { generateForecastsJob } from '@/jobs/generateForecasts';
-export const dynamic = 'force-dynamic';
 import prisma from '@/lib/prisma';
+import { verifyJobAuth } from '@/lib/jobAuth';
 
-
-// Verify cron secret for security
-function verifyCronSecret(request: NextRequest): boolean {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || process.env.NODE_ENV === 'development') {
-    return true;
-  }
-
-  return authHeader === `Bearer ${cronSecret}`;
-}
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const apiKey = request.nextUrl.searchParams.get('key');
-  const isManual = apiKey === process.env.ADMIN_API_KEY;
-  const pricesOnly = request.nextUrl.searchParams.get('pricesOnly') === 'true';
-
-  if (!isManual && !verifyCronSecret(request)) {
+  const auth = verifyJobAuth(request);
+  if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const isManual = auth.triggeredBy === 'manual';
+  const pricesOnly = request.nextUrl.searchParams.get('pricesOnly') === 'true';
 
   const startTime = Date.now();
 

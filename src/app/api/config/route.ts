@@ -6,7 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import prisma from '@/lib/prisma';
+
+const ADMIN_USER_IDS = process.env.ADMIN_USER_IDS?.split(',') || [];
 
 export const dynamic = 'force-dynamic';
 
@@ -40,10 +43,7 @@ export async function GET() {
   } catch (error) {
     console.error('Error fetching config:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: 'Failed to fetch config' },
       { status: 500 }
     );
   } finally {
@@ -53,10 +53,9 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Note: In production, this should be protected by Clerk auth
-    // For now, check for admin API key
-    const apiKey = request.headers.get('x-api-key');
-    if (apiKey !== process.env.ADMIN_API_KEY && process.env.NODE_ENV !== 'development') {
+    // Verify admin access
+    const { userId } = await auth();
+    if (!userId || !ADMIN_USER_IDS.includes(userId)) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -64,10 +63,9 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { key, value, userId } = body as {
+    const { key, value } = body as {
       key: string;
       value: unknown;
-      userId?: string;
     };
 
     if (!key || value === undefined) {
@@ -126,11 +124,11 @@ export async function PUT(request: NextRequest) {
       create: {
         key,
         value: value as object,
-        updatedBy: userId,
+        updatedBy: userId,  // Use authenticated user ID
       },
       update: {
         value: value as object,
-        updatedBy: userId,
+        updatedBy: userId,  // Use authenticated user ID
       },
     });
 
@@ -145,10 +143,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error updating config:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { success: false, error: 'Failed to update config' },
       { status: 500 }
     );
   } finally {

@@ -7,8 +7,9 @@
  * Schedule: 0 5 * * * (5:00 UTC = midnight EST)
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { setCachedMarkets, updateLastKnownIds } from '@/lib/marketCache';
+import { verifyJobAuth } from '@/lib/jobAuth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for market scanning
@@ -139,7 +140,13 @@ async function discoverMarket(pattern: string): Promise<{
   return { id: null, slug: null, status: 'not_found' };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Verify authorization
+  const auth = verifyJobAuth(request);
+  if (!auth.authorized) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   const startTime = Date.now();
 
   console.log('[refresh-markets] Starting market discovery at', new Date().toISOString());

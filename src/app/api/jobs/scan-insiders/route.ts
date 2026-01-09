@@ -7,37 +7,22 @@
  * - daysBack: Number of days to scan (default: 30)
  * - minTradeSize: Minimum trade size in USD (default: 500)
  * - maxTrades: Maximum trades per wallet (default: 5)
- * - key: API key for manual triggers
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { scanInsiders } from '@/jobs/scanInsiders';
 import prisma from '@/lib/prisma';
+import { verifyJobAuth } from '@/lib/jobAuth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes
 
-// Verify cron secret for security
-function verifyCronSecret(request: NextRequest): boolean {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  // Skip verification in development or if no secret is set
-  if (!cronSecret || process.env.NODE_ENV === 'development') {
-    return true;
-  }
-
-  return authHeader === `Bearer ${cronSecret}`;
-}
-
 export async function GET(request: NextRequest) {
-  // Check for manual trigger with API key
-  const apiKey = request.nextUrl.searchParams.get('key');
-  const isManual = apiKey === process.env.ADMIN_API_KEY;
-
-  if (!isManual && !verifyCronSecret(request)) {
+  const auth = verifyJobAuth(request);
+  if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const isManual = auth.triggeredBy === 'manual';
 
   // Parse options - default to 90 days to support all timeframe filters
   const daysBack = parseInt(request.nextUrl.searchParams.get('daysBack') || '90');
