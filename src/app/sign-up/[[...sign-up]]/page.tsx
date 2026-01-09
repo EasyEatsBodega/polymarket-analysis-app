@@ -6,7 +6,7 @@ export default function SignUpPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gunmetal">PredictEasy</h1>
-          <p className="text-gray-600 mt-2">Join Netflix Intelligence Dashboard</p>
+          <p className="text-gray-600 mt-2">Prediction Market Intelligence Dashboard</p>
         </div>
         <SignUp
           appearance={{
