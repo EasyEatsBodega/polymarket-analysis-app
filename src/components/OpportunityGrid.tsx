@@ -8,6 +8,7 @@ interface OpportunityGridProps {
   category?: string;
   minEdge?: number;
   showOnlyOpportunities?: boolean;
+  polymarketOnly?: boolean;
   limit?: number;
   compact?: boolean;
 }
@@ -19,6 +20,7 @@ export default function OpportunityGrid({
   category,
   minEdge,
   showOnlyOpportunities = false,
+  polymarketOnly = false,
   limit = 10,
   compact = false,
 }: OpportunityGridProps) {
@@ -38,6 +40,7 @@ export default function OpportunityGrid({
         if (category) params.set("category", category);
         if (minEdge !== undefined) params.set("minEdge", minEdge.toString());
         if (showOnlyOpportunities) params.set("opportunitiesOnly", "true");
+        if (polymarketOnly) params.set("polymarketOnly", "true");
         params.set("limit", limit.toString());
         params.set("sort", sortBy);
 
@@ -57,7 +60,7 @@ export default function OpportunityGrid({
     }
 
     fetchOpportunities();
-  }, [type, category, minEdge, showOnlyOpportunities, limit, sortBy]);
+  }, [type, category, minEdge, showOnlyOpportunities, polymarketOnly, limit, sortBy]);
 
   if (loading) {
     return (

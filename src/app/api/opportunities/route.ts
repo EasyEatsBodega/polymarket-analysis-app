@@ -147,6 +147,7 @@ export async function GET(request: NextRequest) {
     const categoryParam = searchParams.get("category");
     const minEdge = parseFloat(searchParams.get("minEdge") || "0");
     const opportunitiesOnly = searchParams.get("opportunitiesOnly") === "true";
+    const polymarketOnly = searchParams.get("polymarketOnly") === "true";
     const sortBy = searchParams.get("sort") || "rank";
     const limit = Math.min(parseInt(searchParams.get("limit") || "10"), 50);
 
@@ -537,6 +538,13 @@ export async function GET(request: NextRequest) {
 
     console.log('[opportunities] Added pre-release titles:', preReleaseTitles.filter(t => marketDataMap.has(t.id)).map(t => t.canonicalName));
 
+    // 6c. Filter to Polymarket-only titles if requested
+    let filteredOpportunities = opportunities;
+    if (polymarketOnly) {
+      filteredOpportunities = opportunities.filter(o => o.hasMarket);
+      console.log('[opportunities] Filtered to Polymarket-only:', filteredOpportunities.length, 'titles');
+    }
+
     // 7. Deduplicate predicted ranks
     // Multiple titles can have the same forecastP50, but rankings should be unique
     // Use momentum score as tiebreaker, then assign unique ranks
@@ -582,7 +590,7 @@ export async function GET(request: NextRequest) {
       return [...deduped, ...withoutForecasts];
     };
 
-    const deduplicatedOpportunities = deduplicatePredictedRanks(opportunities);
+    const deduplicatedOpportunities = deduplicatePredictedRanks(filteredOpportunities);
 
     console.log('[opportunities] Deduplicated ranks:', deduplicatedOpportunities.map(o => ({ title: o.title.substring(0, 20), p50: o.forecastP50 })));
 

@@ -100,12 +100,17 @@ export default function NetflixPage() {
             />
           </section>
 
-          {/* Rankings & Opportunities - Main Dashboard */}
+          {/* Polymarket Titles - Main Dashboard */}
           <section className="mb-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <h2 className="text-xl font-semibold text-gunmetal">
-                {activeTabConfig.label}
-              </h2>
+              <div>
+                <h2 className="text-xl font-semibold text-gunmetal">
+                  Polymarket Titles - {activeTabConfig.label}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Titles with active prediction markets
+                </p>
+              </div>
 
               {/* View mode tabs */}
               <div className="flex items-center gap-4">
@@ -118,7 +123,7 @@ export default function NetflixPage() {
                         : "bg-white text-gray-600 hover:bg-gray-50"
                     }`}
                   >
-                    All Rankings
+                    All Titles
                   </button>
                   <button
                     onClick={() => setViewMode("opportunities")}
@@ -151,13 +156,14 @@ export default function NetflixPage() {
               </div>
             </div>
 
-            {/* Opportunity Grid */}
+            {/* Opportunity Grid - Only Polymarket titles */}
             <OpportunityGrid
               type={activeTabConfig.type}
               category={activeTab}
               minEdge={viewMode === "opportunities" ? minEdge : 0}
               showOnlyOpportunities={viewMode === "opportunities"}
-              limit={viewMode === "opportunities" ? 20 : 10}
+              polymarketOnly={true}
+              limit={viewMode === "opportunities" ? 20 : 15}
               compact={false}
             />
           </section>

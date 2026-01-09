@@ -70,6 +70,8 @@ model Title {
   pinnedTitle        PinnedTitle?
   pacingMetrics      PacingMetricDaily[]
   flixPatrolDaily    FlixPatrolDaily[]
+  flixPatrolTrailers FlixPatrolTrailer[]
+  flixPatrolSocial   FlixPatrolSocial[]
 
   @@unique([canonicalName, type])
 }
@@ -123,6 +125,42 @@ model FlixPatrolDaily {
   @@index([date])
   @@index([titleSlug])
   @@index([titleId])
+}
+
+// FlixPatrol trailer data - fetched every 48 hours for Polymarket titles
+model FlixPatrolTrailer {
+  id              String    @id @default(cuid())
+  titleId         String
+  title           Title     @relation(fields: [titleId], references: [id])
+  fpTrailerId     String    // FlixPatrol trailer ID
+  trailerTitle    String    // YouTube video title
+  premiereDate    DateTime? // When trailer was published
+  views           Int       // YouTube views
+  likes           Int       // YouTube likes
+  dislikes        Int       // YouTube dislikes
+  engagementRatio Float     // likes / (likes + dislikes) * 100
+  fetchedAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  @@unique([titleId, fpTrailerId, fetchedAt])
+  @@index([titleId])
+  @@index([fetchedAt])
+}
+
+// FlixPatrol social followers - fetched every 48 hours for Polymarket titles
+model FlixPatrolSocial {
+  id          String    @id @default(cuid())
+  titleId     String
+  title       Title     @relation(fields: [titleId], references: [id])
+  platform    String    // "facebook", "twitter", "instagram", "reddit"
+  followers   Int       // Current follower count
+  change      Int       // Change since last fetch
+  fetchedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@unique([titleId, platform, fetchedAt])
+  @@index([titleId])
+  @@index([fetchedAt])
 }
 
 model DailySignal {
