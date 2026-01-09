@@ -14,7 +14,6 @@ import {
   generateReasoning,
 } from "@/lib/edgeCalculator";
 import { matchOutcomeToTitle, buildTitleCache } from "@/lib/marketMatcher";
-import { fetchAllPolymarketMarkets } from "@/lib/polymarketFetcher";
 
 export const dynamic = "force-dynamic";
 
@@ -248,17 +247,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Fetch Polymarket data directly from Polymarket API (not via internal HTTP call)
-    // This avoids serverless networking issues with localhost/VERCEL_URL
+    // 5. Fetch Polymarket data from our own API using the request origin
+    // This works reliably in both local and production environments
+    const origin = request.nextUrl.origin;
     let polymarketData: { outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
 
     try {
-      console.log('[opportunities] Fetching Polymarket data directly from Polymarket API...');
-      const markets = await fetchAllPolymarketMarkets();
-      polymarketData = markets;
-      console.log('[opportunities] Fetched', polymarketData.length, 'markets from Polymarket');
+      const polyUrl = `${origin}/api/polymarket-netflix`;
+      console.log('[opportunities] Fetching Polymarket data from:', polyUrl);
+      const polyResponse = await fetch(polyUrl);
+      const polyJson = await polyResponse.json();
+
+      if (polyJson.success) {
+        // Flatten all categories
+        const markets = Array.isArray(polyJson.data)
+          ? polyJson.data
+          : Object.values(polyJson.data).flat();
+        polymarketData = markets as typeof polymarketData;
+        console.log('[opportunities] Fetched', polymarketData.length, 'markets');
+      } else {
+        console.error('[opportunities] Polymarket API error:', polyJson);
+      }
     } catch (e) {
-      // Polymarket fetch failed - continue without market data
       console.error('[opportunities] Polymarket fetch error:', e);
     }
 
