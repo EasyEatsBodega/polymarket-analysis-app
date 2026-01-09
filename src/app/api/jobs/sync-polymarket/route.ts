@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPolymarket } from '@/jobs/syncPolymarket';
 import { ingestNetflixRatings } from '@/jobs/ingestNetflixRatings';
+import { generateForecastsJob } from '@/jobs/generateForecasts';
 export const dynamic = 'force-dynamic';
 import prisma from '@/lib/prisma';
 
@@ -48,12 +49,22 @@ export async function GET(request: NextRequest) {
 
     // After sync, fetch ratings for any new Netflix titles
     let ratingsResult = null;
+    let forecastResult = null;
     if (!pricesOnly) {
       console.log('Fetching ratings for Netflix market titles...');
       try {
         ratingsResult = await ingestNetflixRatings();
       } catch (ratingsError) {
         console.error('Ratings ingestion failed (non-fatal):', ratingsError);
+      }
+
+      // Generate forecasts for all Polymarket titles
+      console.log('Generating forecasts for all Polymarket titles...');
+      try {
+        forecastResult = await generateForecastsJob();
+        console.log(`Generated ${forecastResult.forecastsGenerated} forecasts for ${forecastResult.titlesProcessed} titles`);
+      } catch (forecastError) {
+        console.error('Forecast generation failed (non-fatal):', forecastError);
       }
     }
 
@@ -71,6 +82,7 @@ export async function GET(request: NextRequest) {
           ...result,
           errors: result.errors.slice(0, 100),
           ratingsIngested: ratingsResult,
+          forecastsGenerated: forecastResult,
         },
       },
     });
@@ -89,6 +101,11 @@ export async function GET(request: NextRequest) {
         errorCount: result.errors.length,
       },
       ratingsIngested: ratingsResult,
+      forecastsGenerated: forecastResult ? {
+        titlesProcessed: forecastResult.titlesProcessed,
+        forecastsGenerated: forecastResult.forecastsGenerated,
+        forecastsSaved: forecastResult.forecastsSaved,
+      } : null,
     });
   } catch (error) {
     const duration = Date.now() - startTime;
