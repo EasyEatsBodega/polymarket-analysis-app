@@ -1,10 +1,11 @@
 /**
- * Returns the current user's Clerk ID
- * Use this to get your ID for ADMIN_USER_IDS env var
+ * Returns the current user's Clerk ID and admin status
  */
 
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+
+const ADMIN_USER_IDS = process.env.ADMIN_USER_IDS?.split(",") || [];
 
 export async function GET() {
   const { userId } = await auth();
@@ -15,6 +16,6 @@ export async function GET() {
 
   return NextResponse.json({
     userId,
-    message: "Add this userId to ADMIN_USER_IDS in your .env.local file",
+    isAdmin: ADMIN_USER_IDS.includes(userId),
   });
 }

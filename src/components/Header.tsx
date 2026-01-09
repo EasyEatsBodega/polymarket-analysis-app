@@ -1,10 +1,25 @@
 "use client";
 
-import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignInButton, SignedIn, SignedOut, UserButton, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import Image from "next/image";
+import { useState, useEffect } from "react";
 
 export default function Header() {
+  const { isSignedIn } = useUser();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      fetch("/api/auth/me")
+        .then((res) => res.json())
+        .then((data) => setIsAdmin(data.isAdmin === true))
+        .catch(() => setIsAdmin(false));
+    } else {
+      setIsAdmin(false);
+    }
+  }, [isSignedIn]);
+
   return (
     <header className="bg-gunmetal text-white shadow-md">
       <div className="container mx-auto px-4 py-4">
@@ -44,14 +59,14 @@ export default function Header() {
             >
               Insider Finder
             </Link>
-            <SignedIn>
+            {isAdmin && (
               <Link
                 href="/admin"
                 className="text-dust-grey hover:text-white transition-colors"
               >
                 Admin
               </Link>
-            </SignedIn>
+            )}
           </nav>
 
           {/* Auth Section */}
