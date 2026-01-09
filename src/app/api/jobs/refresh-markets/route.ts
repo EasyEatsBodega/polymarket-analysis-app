@@ -2,12 +2,13 @@
  * Cron Job: Refresh Polymarket Market Discovery
  *
  * Runs daily at midnight EST to discover active Netflix markets.
- * This pre-warms the cache so users get fast responses during the day.
+ * Saves discovered slugs to database so user requests are fast.
  *
  * Schedule: 0 5 * * * (5:00 UTC = midnight EST)
  */
 
 import { NextResponse } from 'next/server';
+import { setCachedMarkets } from '@/lib/marketCache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Allow up to 60 seconds for market scanning
@@ -183,6 +184,22 @@ export async function GET() {
   console.log(`[refresh-markets] Completed in ${duration}ms`);
   console.log(`[refresh-markets] Active: ${activeCount}, Closed: ${closedCount}, Not found: ${results.length - activeCount - closedCount}`);
 
+  // Save discovered markets to database cache
+  const marketsToCache = results
+    .filter(r => r.slug !== null && r.id !== null)
+    .map(r => ({
+      pattern: r.pattern,
+      slug: r.slug!,
+      id: r.id!,
+      closed: r.status === 'closed',
+      discoveredAt: new Date().toISOString(),
+    }));
+
+  if (marketsToCache.length > 0) {
+    await setCachedMarkets(marketsToCache);
+    console.log(`[refresh-markets] Saved ${marketsToCache.length} markets to database cache`);
+  }
+
   return NextResponse.json({
     success: true,
     timestamp: new Date().toISOString(),
@@ -191,6 +208,7 @@ export async function GET() {
       active: activeCount,
       closed: closedCount,
       notFound: results.length - activeCount - closedCount,
+      cached: marketsToCache.length,
     },
     markets: results,
   });
