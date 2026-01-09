@@ -52,6 +52,16 @@ export async function GET(
             },
           },
         },
+        // FlixPatrol trailer data - last 10 snapshots per trailer
+        flixPatrolTrailers: {
+          orderBy: { fetchedAt: 'desc' },
+          take: 50, // Get enough to show history for multiple trailers
+        },
+        // FlixPatrol social data - last 10 snapshots per platform
+        flixPatrolSocial: {
+          orderBy: { fetchedAt: 'desc' },
+          take: 40, // Get enough to show history for multiple platforms
+        },
       },
     });
 
@@ -128,6 +138,92 @@ export async function GET(
       lastUpdated: link.market.prices[0]?.timestamp.toISOString() ?? null,
     }));
 
+    // Format FlixPatrol trailer data - group by trailer ID and get history
+    const trailerMap = new Map<string, any[]>();
+    for (const t of title.flixPatrolTrailers || []) {
+      const key = t.fpTrailerId;
+      if (!trailerMap.has(key)) {
+        trailerMap.set(key, []);
+      }
+      trailerMap.get(key)!.push(t);
+    }
+
+    const trailers = Array.from(trailerMap.entries()).map(([fpTrailerId, records]) => {
+      // Sort by fetchedAt ascending for history
+      const sorted = records.sort((a: any, b: any) =>
+        new Date(a.fetchedAt).getTime() - new Date(b.fetchedAt).getTime()
+      );
+      const latest = sorted[sorted.length - 1];
+      const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+
+      // Calculate changes
+      const viewsChange = previous ? latest.views - previous.views : 0;
+      const likesChange = previous ? latest.likes - previous.likes : 0;
+
+      return {
+        fpTrailerId,
+        title: latest.trailerTitle,
+        premiereDate: latest.premiereDate?.toISOString() ?? null,
+        current: {
+          views: latest.views,
+          likes: latest.likes,
+          dislikes: latest.dislikes,
+          engagementRatio: latest.engagementRatio,
+        },
+        changes: {
+          views: viewsChange,
+          likes: likesChange,
+        },
+        history: sorted.map((r: any) => ({
+          date: r.fetchedAt.toISOString(),
+          views: r.views,
+          likes: r.likes,
+          dislikes: r.dislikes,
+          engagementRatio: r.engagementRatio,
+        })),
+      };
+    });
+
+    // Format FlixPatrol social data - group by platform and get history
+    const socialMap = new Map<string, any[]>();
+    for (const s of title.flixPatrolSocial || []) {
+      const key = s.platform;
+      if (!socialMap.has(key)) {
+        socialMap.set(key, []);
+      }
+      socialMap.get(key)!.push(s);
+    }
+
+    const social = Array.from(socialMap.entries()).map(([platform, records]) => {
+      // Sort by fetchedAt ascending for history
+      const sorted = records.sort((a: any, b: any) =>
+        new Date(a.fetchedAt).getTime() - new Date(b.fetchedAt).getTime()
+      );
+      const latest = sorted[sorted.length - 1];
+      const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+
+      // Calculate growth
+      const followersChange = previous ? latest.followers - previous.followers : latest.change;
+      const growthPercent = previous && previous.followers > 0
+        ? ((latest.followers - previous.followers) / previous.followers) * 100
+        : 0;
+
+      return {
+        platform,
+        current: {
+          followers: latest.followers,
+          change: latest.change,
+        },
+        growthPercent,
+        followersChange,
+        history: sorted.map((r: any) => ({
+          date: r.fetchedAt.toISOString(),
+          followers: r.followers,
+          change: r.change,
+        })),
+      };
+    });
+
     return NextResponse.json({
       success: true,
       data: {
@@ -146,6 +242,10 @@ export async function GET(
         },
         forecasts,
         markets,
+        flixpatrol: {
+          trailers,
+          social,
+        },
       },
     });
   } catch (error) {

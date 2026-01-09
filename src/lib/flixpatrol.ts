@@ -8,7 +8,7 @@
  * - Social media metrics
  */
 
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
 const FLIXPATROL_API_BASE = 'https://api.flixpatrol.com/v2';
 
@@ -157,7 +157,7 @@ export async function searchFlixPatrolTitle(
   if (!api) return null;
 
   try {
-    const response = await api.get('/titles', {
+    const response: AxiosResponse<any> = await api.get('/titles', {
       params: { 'title[eq]': titleName },
     });
 
@@ -205,7 +205,7 @@ export async function getFlixPatrolRankings(
     let nextUrl: string | null = `/rankings?movie[eq]=${fpTitleId}`;
 
     while (nextUrl && rankings.length < limit) {
-      const response = await api.get(nextUrl);
+      const response: AxiosResponse<any> = await api.get(nextUrl);
 
       if (response.data?.data) {
         for (const item of response.data.data) {
@@ -242,7 +242,7 @@ export async function getFlixPatrolTrailers(
   if (!api) return [];
 
   try {
-    const response = await api.get('/trailers', {
+    const response: AxiosResponse<any> = await api.get('/trailers', {
       params: { 'movie[eq]': fpTitleId },
     });
 
