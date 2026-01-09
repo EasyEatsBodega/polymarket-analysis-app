@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/Header";
+import { MarketThesis } from "@/components/netflix/MarketThesis";
 
 interface RankData {
   week: string;
@@ -782,6 +783,11 @@ export default function TitleDetailPage() {
 
       {/* Content */}
       <div className="container mx-auto px-4 py-8">
+        {/* Market Analysis - Why This Price? */}
+        <section className="mb-8">
+          <MarketThesis titleId={title.id} titleName={title.canonicalName} />
+        </section>
+
         {/* Rankings Section - Combined with Forecasts */}
         <section className="mb-8">
           <h2 className="text-xl font-semibold text-gunmetal mb-4">Rankings & Forecast</h2>
