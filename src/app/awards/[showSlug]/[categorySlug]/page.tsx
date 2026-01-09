@@ -330,7 +330,7 @@ export default function CategoryDetailPage() {
       <div className="bg-gunmetal text-white">
         <div className="container mx-auto px-4 py-6">
           <Link
-            href={`/awards?show=${showSlug}`}
+            href={`/awards/${showSlug}`}
             className="inline-flex items-center gap-2 text-dust-grey hover:text-white mb-4 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
