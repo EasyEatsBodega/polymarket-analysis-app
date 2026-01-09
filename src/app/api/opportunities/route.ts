@@ -55,11 +55,21 @@ type Signal = "BUY" | "HOLD" | "AVOID";
 type SignalStrength = "strong" | "moderate" | "weak";
 
 // Map tab IDs to Netflix category names (database still uses English/Non-English)
-const categoryMap: Record<string, string> = {
+// Note: "global" categories return null to include ALL content (English + Non-English)
+// because Polymarket Global markets include ALL titles, not just international ones
+const categoryMap: Record<string, string | null> = {
   "shows-us": "TV (English)",
-  "shows-global": "TV (Non-English)",
+  "shows-global": null, // Global = ALL shows (Polymarket Global includes US + international)
   "films-us": "Films (English)",
-  "films-global": "Films (Non-English)",
+  "films-global": null, // Global = ALL films (Polymarket Global includes US + international)
+};
+
+// For type filtering when category is global
+const typeFromCategory: Record<string, TitleType | null> = {
+  "shows-us": "SHOW",
+  "shows-global": "SHOW",
+  "films-us": "MOVIE",
+  "films-global": "MOVIE",
 };
 
 interface MomentumBreakdown {
@@ -152,7 +162,11 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "10"), 50);
 
     // Map category param to Netflix category name
+    // For "global" categories, netflixCategory is null but we filter by type instead
     const netflixCategory = categoryParam ? categoryMap[categoryParam] : null;
+    const categoryType = categoryParam ? typeFromCategory[categoryParam] : null;
+    // Use explicit type param if provided, otherwise infer from category
+    const effectiveType = type || categoryType;
 
     // 1. Get the most recent week with data
     const latestWeek = await withRetry<WeeklyGlobalWithWeekStart | null>(() =>
@@ -175,7 +189,8 @@ export async function GET(request: NextRequest) {
     previousWeekStart.setDate(previousWeekStart.getDate() - 7);
 
     // 2. Fetch current week Netflix rankings
-    const titleWhereClause = type ? { type } : {};
+    // For global categories, we filter by type (SHOW/MOVIE) but not by specific category
+    const titleWhereClause = effectiveType ? { type: effectiveType } : {};
 
     const currentWeekData = await withRetry<WeeklyGlobalWithSelect[]>(() =>
       prisma.netflixWeeklyGlobal.findMany({
