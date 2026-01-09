@@ -5,29 +5,40 @@ import { NextResponse } from "next/server";
 const ADMIN_USER_IDS = process.env.ADMIN_USER_IDS?.split(",") || [];
 
 // Routes that require admin access
-const isAdminRoute = createRouteMatcher([
-  "/admin(.*)",
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
+
+// Routes that require authentication (Awards and Netflix sections)
+const isProtectedRoute = createRouteMatcher([
+  "/awards(.*)",
+  "/netflix(.*)",
 ]);
 
+// Public routes (no auth required): /, /insider-finder, /sign-in, /sign-up
+
 export default clerkMiddleware(async (auth, req) => {
+  const { userId } = await auth();
+
   // Protect admin routes - require authentication AND admin role
   if (isAdminRoute(req)) {
-    const { userId } = await auth();
-
-    // Not signed in - redirect to sign-in
     if (!userId) {
       const signInUrl = new URL("/sign-in", req.url);
       signInUrl.searchParams.set("redirect_url", req.url);
       return NextResponse.redirect(signInUrl);
     }
 
-    // Signed in but not an admin - show forbidden
     if (!ADMIN_USER_IDS.includes(userId)) {
       return NextResponse.json(
         { error: "Access denied. Admin privileges required." },
         { status: 403 }
       );
     }
+  }
+
+  // Protect Awards and Netflix routes - require authentication
+  if (isProtectedRoute(req) && !userId) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("redirect_url", req.url);
+    return NextResponse.redirect(signInUrl);
   }
 });
 
