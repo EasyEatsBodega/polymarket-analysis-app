@@ -198,6 +198,34 @@ async function syncPolymarketTitles(result: SyncResult): Promise<void> {
               result.errors.push(`Failed to create title "${outcome.name}": ${error instanceof Error ? error.message : error}`);
             }
           }
+        } else {
+          // Title exists - ensure it has a Polymarket external ID
+          try {
+            const existingExtId = await prisma.titleExternalId.findUnique({
+              where: {
+                titleId_provider: {
+                  titleId: existingTitle.id,
+                  provider: 'polymarket',
+                },
+              },
+            });
+
+            if (!existingExtId) {
+              await prisma.titleExternalId.create({
+                data: {
+                  titleId: existingTitle.id,
+                  provider: 'polymarket',
+                  externalId: outcome.name,
+                },
+              });
+              console.log(`Linked existing title to Polymarket: ${existingTitle.canonicalName}`);
+            }
+          } catch (error) {
+            // Ignore unique constraint violations (external ID exists with different externalId value)
+            if (!(error instanceof Error && error.message.includes('Unique constraint'))) {
+              result.errors.push(`Failed to link title "${existingTitle.canonicalName}": ${error instanceof Error ? error.message : error}`);
+            }
+          }
         }
       }
     }

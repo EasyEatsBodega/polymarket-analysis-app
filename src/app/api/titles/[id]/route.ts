@@ -6,11 +6,30 @@
  * - Signal data
  * - Forecasts
  * - Linked Polymarket markets
+ * - FlixPatrol trailer and social data (from base title if season-specific)
  */
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+
+/**
+ * Extract base title name by removing season/episode suffixes
+ * Examples:
+ *   "Stranger Things 5" -> "Stranger Things"
+ *   "Stranger Things: Season 5" -> "Stranger Things"
+ *   "Emily in Paris" -> "Emily in Paris"
+ */
+function getBaseTitleName(name: string): string {
+  return name
+    // Remove ": Season X" pattern
+    .replace(/:\s*Season\s+\d+$/i, '')
+    // Remove trailing number (like "5" in "Stranger Things 5")
+    .replace(/\s+\d+$/, '')
+    // Remove "(Part X)" or "(Volume X)" patterns
+    .replace(/\s*\((?:Part|Volume|Season)\s*\d+\)\s*$/i, '')
+    .trim();
+}
 
 
 export async function GET(
@@ -70,6 +89,40 @@ export async function GET(
         { success: false, error: 'Title not found' },
         { status: 404 }
       );
+    }
+
+    // If this title has no FlixPatrol data, try to find it on the base title
+    // (e.g., "Stranger Things 5" -> look for data on "Stranger Things")
+    let flixPatrolTrailers = title.flixPatrolTrailers;
+    let flixPatrolSocial = title.flixPatrolSocial;
+
+    if (flixPatrolTrailers.length === 0 && flixPatrolSocial.length === 0) {
+      const baseName = getBaseTitleName(title.canonicalName);
+
+      if (baseName !== title.canonicalName) {
+        // Try to find the base title
+        const baseTitle = await prisma.title.findFirst({
+          where: {
+            canonicalName: baseName,
+            type: title.type,
+          },
+          include: {
+            flixPatrolTrailers: {
+              orderBy: { fetchedAt: 'desc' },
+              take: 50,
+            },
+            flixPatrolSocial: {
+              orderBy: { fetchedAt: 'desc' },
+              take: 40,
+            },
+          },
+        });
+
+        if (baseTitle) {
+          flixPatrolTrailers = baseTitle.flixPatrolTrailers;
+          flixPatrolSocial = baseTitle.flixPatrolSocial;
+        }
+      }
     }
 
     // Calculate rank trends
@@ -140,7 +193,7 @@ export async function GET(
 
     // Format FlixPatrol trailer data - group by trailer ID and get history
     const trailerMap = new Map<string, any[]>();
-    for (const t of title.flixPatrolTrailers || []) {
+    for (const t of flixPatrolTrailers || []) {
       const key = t.fpTrailerId;
       if (!trailerMap.has(key)) {
         trailerMap.set(key, []);
@@ -186,7 +239,7 @@ export async function GET(
 
     // Format FlixPatrol social data - group by platform and get history
     const socialMap = new Map<string, any[]>();
-    for (const s of title.flixPatrolSocial || []) {
+    for (const s of flixPatrolSocial || []) {
       const key = s.platform;
       if (!socialMap.has(key)) {
         socialMap.set(key, []);
