@@ -7,18 +7,18 @@ import WatchlistPanel from "@/components/WatchlistPanel";
 import Header from "@/components/Header";
 import OpportunityGrid from "@/components/OpportunityGrid";
 
-type Tab = "shows-english" | "shows-non-english" | "films-english" | "films-non-english";
+type Tab = "shows-us" | "shows-global" | "films-us" | "films-global";
 type ViewMode = "rankings" | "opportunities";
 
-const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; geo: "GLOBAL" | "US"; language: "english" | "non-english" }[] = [
-  { id: "shows-english", label: "TV (English)", type: "SHOW", geo: "GLOBAL", language: "english" },
-  { id: "shows-non-english", label: "TV (Non-English)", type: "SHOW", geo: "GLOBAL", language: "non-english" },
-  { id: "films-english", label: "Films (English)", type: "MOVIE", geo: "GLOBAL", language: "english" },
-  { id: "films-non-english", label: "Films (Non-English)", type: "MOVIE", geo: "GLOBAL", language: "non-english" },
+const tabs: { id: Tab; label: string; type: "SHOW" | "MOVIE"; region: "us" | "global" }[] = [
+  { id: "shows-us", label: "TV (US)", type: "SHOW", region: "us" },
+  { id: "shows-global", label: "TV (Global)", type: "SHOW", region: "global" },
+  { id: "films-us", label: "Films (US)", type: "MOVIE", region: "us" },
+  { id: "films-global", label: "Films (Global)", type: "MOVIE", region: "global" },
 ];
 
 export default function NetflixPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("shows-english");
+  const [activeTab, setActiveTab] = useState<Tab>("shows-us");
   const [searchQuery, setSearchQuery] = useState("");
   const [showWatchlist, setShowWatchlist] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("rankings");
@@ -94,7 +94,7 @@ export default function NetflixPage() {
             </div>
             <RankTrendChart
               type={activeTabConfig.type}
-              language={activeTabConfig.language}
+              region={activeTabConfig.region}
               weeks={8}
               limit={5}
             />

@@ -6,22 +6,23 @@
  */
 
 // Known Netflix market slug patterns - the number suffix changes weekly
+// US markets = US-only content, Global markets = ALL content (including US)
 const MARKET_PATTERNS = [
-  // US Shows (English)
-  { basePattern: 'what-will-be-the-top-us-netflix-show-this-week', category: 'shows-english', rank: 1, label: '#1 US TV Show' },
-  { basePattern: 'what-will-be-the-2-us-netflix-show-this-week', category: 'shows-english', rank: 2, label: '#2 US TV Show' },
+  // US Shows
+  { basePattern: 'what-will-be-the-top-us-netflix-show-this-week', category: 'shows-us', rank: 1, label: '#1 US TV Show' },
+  { basePattern: 'what-will-be-the-2-us-netflix-show-this-week', category: 'shows-us', rank: 2, label: '#2 US TV Show' },
 
-  // Global Shows (Non-English)
-  { basePattern: 'what-will-be-the-top-global-netflix-show-this-week', category: 'shows-non-english', rank: 1, label: '#1 Global TV Show' },
-  { basePattern: 'what-will-be-the-2-global-netflix-show-this-week', category: 'shows-non-english', rank: 2, label: '#2 Global TV Show' },
+  // Global Shows (includes US + international)
+  { basePattern: 'what-will-be-the-top-global-netflix-show-this-week', category: 'shows-global', rank: 1, label: '#1 Global TV Show' },
+  { basePattern: 'what-will-be-the-2-global-netflix-show-this-week', category: 'shows-global', rank: 2, label: '#2 Global TV Show' },
 
-  // US Movies (English)
-  { basePattern: 'what-will-be-the-top-us-netflix-movie-this-week', category: 'films-english', rank: 1, label: '#1 US Movie' },
-  { basePattern: 'what-will-be-the-2-us-netflix-movie-this-week', category: 'films-english', rank: 2, label: '#2 US Movie' },
+  // US Movies
+  { basePattern: 'what-will-be-the-top-us-netflix-movie-this-week', category: 'films-us', rank: 1, label: '#1 US Movie' },
+  { basePattern: 'what-will-be-the-2-us-netflix-movie-this-week', category: 'films-us', rank: 2, label: '#2 US Movie' },
 
-  // Global Movies (Non-English)
-  { basePattern: 'what-will-be-the-top-global-netflix-movie-this-week', category: 'films-non-english', rank: 1, label: '#1 Global Movie' },
-  { basePattern: 'what-will-be-the-2-global-netflix-movie-this-week', category: 'films-non-english', rank: 2, label: '#2 Global Movie' },
+  // Global Movies (includes US + international)
+  { basePattern: 'what-will-be-the-top-global-netflix-movie-this-week', category: 'films-global', rank: 1, label: '#1 Global Movie' },
+  { basePattern: 'what-will-be-the-2-global-netflix-movie-this-week', category: 'films-global', rank: 2, label: '#2 Global Movie' },
 ];
 
 // Scan ranges for market discovery

@@ -32,17 +32,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl;
 
     const type = searchParams.get('type') as TitleType | null;
-    const language = searchParams.get('language'); // 'english' or 'non-english'
+    const region = searchParams.get('region'); // 'us' or 'global'
     const weeks = Math.min(parseInt(searchParams.get('weeks') || '8', 10), 52);
     const limit = Math.min(parseInt(searchParams.get('limit') || '5', 10), 10);
 
-    // Map language filter to Netflix category
+    // Map region filter to Netflix category (database still uses English/Non-English naming)
     const getCategoryFilter = () => {
-      if (!language) return undefined;
-      if (language === 'english') {
+      if (!region) return undefined;
+      if (region === 'us') {
         return type === 'SHOW' ? 'TV (English)' : 'Films (English)';
       }
-      if (language === 'non-english') {
+      if (region === 'global') {
         return type === 'SHOW' ? 'TV (Non-English)' : 'Films (Non-English)';
       }
       return undefined;
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
       meta: {
         weeks: weekStarts.length,
         type: type || 'ALL',
-        language: language || 'ALL',
+        region: region || 'ALL',
       },
     });
   } catch (error) {

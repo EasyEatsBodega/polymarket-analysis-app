@@ -79,18 +79,18 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const type = searchParams.get('type') as TitleType | null;
     const geo = searchParams.get('geo') || 'GLOBAL'; // GLOBAL or US
-    const language = searchParams.get('language'); // 'english' or 'non-english' (optional)
+    const region = searchParams.get('region'); // 'us' or 'global' (optional)
     const sortBy = searchParams.get('sort') || 'rank'; // 'rank', 'change', 'views', 'momentum'
     const sortOrder = searchParams.get('order') || 'asc'; // 'asc' or 'desc'
     const limit = Math.min(parseInt(searchParams.get('limit') || '10', 10), 50);
 
-    // Map language filter to Netflix category patterns
+    // Map region filter to Netflix category (database still uses English/Non-English)
     const getCategoryFilter = () => {
-      if (!language) return undefined;
-      if (language === 'english') {
+      if (!region) return undefined;
+      if (region === 'us') {
         return type === 'SHOW' ? 'TV (English)' : 'Films (English)';
       }
-      if (language === 'non-english') {
+      if (region === 'global') {
         return type === 'SHOW' ? 'TV (Non-English)' : 'Films (Non-English)';
       }
       return undefined;

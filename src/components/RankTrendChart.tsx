@@ -30,14 +30,14 @@ interface ChartDataPoint {
 
 interface RankTrendChartProps {
   type: "SHOW" | "MOVIE";
-  language: "english" | "non-english";
+  region: "us" | "global";
   weeks?: number;
   limit?: number;
 }
 
 export default function RankTrendChart({
   type,
-  language,
+  region,
   weeks = 8,
   limit = 5,
 }: RankTrendChartProps) {
@@ -55,7 +55,7 @@ export default function RankTrendChart({
       try {
         const params = new URLSearchParams({
           type,
-          language,
+          region,
           weeks: weeks.toString(),
           limit: limit.toString(),
         });
@@ -79,7 +79,7 @@ export default function RankTrendChart({
     }
 
     fetchChartData();
-  }, [type, language, weeks, limit]);
+  }, [type, region, weeks, limit]);
 
   const toggleTitle = (titleId: string) => {
     setSelectedTitles((prev) => {

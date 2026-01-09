@@ -54,12 +54,12 @@ type ForecastBasic = {
 type Signal = "BUY" | "HOLD" | "AVOID";
 type SignalStrength = "strong" | "moderate" | "weak";
 
-// Map tab IDs to Netflix category names
+// Map tab IDs to Netflix category names (database still uses English/Non-English)
 const categoryMap: Record<string, string> = {
-  "shows-english": "TV (English)",
-  "shows-non-english": "TV (Non-English)",
-  "films-english": "Films (English)",
-  "films-non-english": "Films (Non-English)",
+  "shows-us": "TV (English)",
+  "shows-global": "TV (Non-English)",
+  "films-us": "Films (English)",
+  "films-global": "Films (Non-English)",
 };
 
 interface MomentumBreakdown {
