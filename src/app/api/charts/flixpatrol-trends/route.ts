@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       titleIds = marketLinks.map(m => m.titleId);
     }
 
-    // Get distinct dates in range
+    // Build query - filter by titleIds if specified, otherwise get all entries
     const flixpatrolData = await withRetry<FlixPatrolDailyResult[]>(() =>
       prisma.flixPatrolDaily.findMany({
         where: {
@@ -81,8 +81,8 @@ export async function GET(request: NextRequest) {
             gte: startDate,
             lte: endDate,
           },
-          // Filter by titleIds if specified, otherwise just require titleId is not null
-          titleId: titleIds.length > 0 ? { in: titleIds } : { not: null },
+          // Filter by titleIds only if specified (for single title mode or polymarketOnly)
+          ...(titleIds.length > 0 && { titleId: { in: titleIds } }),
         },
         orderBy: { date: 'asc' },
       })
@@ -96,26 +96,42 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get unique dates and title IDs
+    // Get unique dates
     const uniqueDates = [...new Set(flixpatrolData.map(d => d.date.toISOString().split('T')[0]))].sort();
-    const uniqueTitleIds = [...new Set(flixpatrolData.filter(d => d.titleId).map(d => d.titleId as string))];
 
-    // Get title details
-    const titles = await withRetry<TitleSelect[]>(() =>
+    // Build a map of unique entries using titleId if available, otherwise titleSlug
+    // Key: titleId or "slug:titleSlug", Value: { name, type, titleId }
+    const titleKeyMap = new Map<string, { name: string; titleId: string | null; slug: string | null }>();
+    for (const d of flixpatrolData) {
+      const key = d.titleId || `slug:${d.titleSlug}`;
+      if (!titleKeyMap.has(key)) {
+        titleKeyMap.set(key, {
+          name: d.titleName,
+          titleId: d.titleId,
+          slug: d.titleSlug,
+        });
+      }
+    }
+    const uniqueKeys = [...titleKeyMap.keys()];
+
+    // Get title details for entries that have titleId
+    const linkedTitleIds = [...titleKeyMap.values()].filter(t => t.titleId).map(t => t.titleId as string);
+    const titles = linkedTitleIds.length > 0 ? await withRetry<TitleSelect[]>(() =>
       prisma.title.findMany({
-        where: { id: { in: uniqueTitleIds } },
+        where: { id: { in: linkedTitleIds } },
         select: { id: true, canonicalName: true, type: true },
       })
-    );
+    ) : [];
     const titleMap = new Map(titles.map(t => [t.id, t]));
 
-    // Get most recent rank for each title
+    // Get most recent rank for each entry
     const latestDate = uniqueDates[uniqueDates.length - 1];
     const latestRanks = new Map<string, number>();
     flixpatrolData
-      .filter(d => d.date.toISOString().split('T')[0] === latestDate && d.titleId)
+      .filter(d => d.date.toISOString().split('T')[0] === latestDate)
       .forEach(d => {
-        latestRanks.set(d.titleId as string, d.rank);
+        const key = d.titleId || `slug:${d.titleSlug}`;
+        latestRanks.set(key, d.rank);
       });
 
     // Build chart data
@@ -131,25 +147,31 @@ export async function GET(request: NextRequest) {
       };
 
       // Add rank for each title on this date
-      uniqueTitleIds.forEach(tid => {
-        const record = flixpatrolData.find(
-          d => d.titleId === tid && d.date.toISOString().split('T')[0] === dateStr
-        );
-        dataPoint[tid] = record?.rank ?? null;
+      uniqueKeys.forEach(key => {
+        const record = flixpatrolData.find(d => {
+          const recordKey = d.titleId || `slug:${d.titleSlug}`;
+          return recordKey === key && d.date.toISOString().split('T')[0] === dateStr;
+        });
+        dataPoint[key] = record?.rank ?? null;
       });
 
       return dataPoint;
     });
 
     // Build titles metadata sorted by current rank
-    const titlesInfo: TitleInfo[] = uniqueTitleIds
-      .map((id, index) => ({
-        id,
-        name: titleMap.get(id)?.canonicalName || 'Unknown',
-        type: titleMap.get(id)?.type || 'SHOW',
-        color: getColorForIndex(index),
-        currentRank: latestRanks.get(id) || null,
-      }))
+    const titlesInfo: TitleInfo[] = uniqueKeys
+      .map((key, index) => {
+        const entry = titleKeyMap.get(key)!;
+        // Use linked title name if available, otherwise use FlixPatrol name
+        const linkedTitle = entry.titleId ? titleMap.get(entry.titleId) : null;
+        return {
+          id: key,
+          name: linkedTitle?.canonicalName || entry.name,
+          type: linkedTitle?.type || (category === 'tv' ? 'SHOW' : 'MOVIE'),
+          color: getColorForIndex(index),
+          currentRank: latestRanks.get(key) || null,
+        };
+      })
       .sort((a, b) => {
         if (a.currentRank === null) return 1;
         if (b.currentRank === null) return -1;

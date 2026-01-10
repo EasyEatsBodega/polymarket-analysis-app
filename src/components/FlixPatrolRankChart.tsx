@@ -160,66 +160,74 @@ export default function FlixPatrolRankChart({
       {/* Title Legend / Toggle - only show if multiple titles */}
       {!isSingleTitle && (
         <div className="flex flex-wrap gap-2 mb-6">
-          {titles.map((title) => (
-            <div key={title.id} className="flex items-center">
-              <button
-                onClick={() => toggleTitle(title.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-all border border-r-0 ${
-                  selectedTitles.has(title.id)
-                    ? "bg-white border-white text-gunmetal"
-                    : "bg-transparent border-gray-600 text-gray-500 opacity-50"
-                }`}
-              >
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: title.color }}
-                />
-                <span
-                  className={`max-w-[180px] truncate ${
+          {titles.map((title) => {
+            // Check if this is a linked title (has real titleId) or unlinked (uses slug key)
+            const isLinked = !title.id.startsWith("slug:");
+            return (
+              <div key={title.id} className="flex items-center">
+                <button
+                  onClick={() => toggleTitle(title.id)}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-all border ${
+                    isLinked ? "rounded-l-lg border-r-0" : "rounded-lg"
+                  } ${
                     selectedTitles.has(title.id)
-                      ? "text-gray-900"
-                      : "text-gray-400"
+                      ? "bg-white border-white text-gunmetal"
+                      : "bg-transparent border-gray-600 text-gray-500 opacity-50"
                   }`}
                 >
-                  {title.name}
-                </span>
-                {title.currentRank && (
                   <span
-                    className={`text-xs ${
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: title.color }}
+                  />
+                  <span
+                    className={`max-w-[180px] truncate ${
                       selectedTitles.has(title.id)
-                        ? "text-gray-600"
-                        : "text-gray-500"
+                        ? "text-gray-900"
+                        : "text-gray-400"
                     }`}
                   >
-                    #{title.currentRank}
+                    {title.name}
                   </span>
+                  {title.currentRank && (
+                    <span
+                      className={`text-xs ${
+                        selectedTitles.has(title.id)
+                          ? "text-gray-600"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      #{title.currentRank}
+                    </span>
+                  )}
+                </button>
+                {isLinked && (
+                  <Link
+                    href={`/netflix/${title.id}`}
+                    className={`px-2 py-2 rounded-r-lg border transition-all ${
+                      selectedTitles.has(title.id)
+                        ? "bg-pine-blue border-pine-blue text-white hover:bg-opacity-80"
+                        : "bg-transparent border-gray-600 text-gray-500 hover:text-white hover:border-gray-400"
+                    }`}
+                    title={`View ${title.name} details`}
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </Link>
                 )}
-              </button>
-              <Link
-                href={`/netflix/${title.id}`}
-                className={`px-2 py-2 rounded-r-lg border transition-all ${
-                  selectedTitles.has(title.id)
-                    ? "bg-pine-blue border-pine-blue text-white hover:bg-opacity-80"
-                    : "bg-transparent border-gray-600 text-gray-500 hover:text-white hover:border-gray-400"
-                }`}
-                title={`View ${title.name} details`}
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
-              </Link>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
