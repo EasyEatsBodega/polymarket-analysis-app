@@ -326,6 +326,7 @@ function applyMomentumAdjustment(
 
 /**
  * Generate forecast for a single title
+ * v1.4.0: Now also checks Polymarket for titles with Netflix history
  */
 export async function generateForecast(
   titleId: string,
@@ -338,6 +339,12 @@ export async function generateForecast(
   if (historical.length === 0) {
     return null; // No data to forecast from
   }
+
+  // Get title info for Polymarket lookup
+  const title = await prisma.title.findUnique({
+    where: { id: titleId },
+    select: { canonicalName: true, type: true },
+  });
 
   // Get current features
   const weights = await getMomentumWeights();
@@ -358,20 +365,76 @@ export async function generateForecast(
   const { adjusted: adjustedForecast, contribution: momentumContribution } =
     applyMomentumAdjustment(baseForecast, features);
 
+  // === v1.4.0: Check Polymarket data and apply tiered adjustment ===
+  let polymarketData: { probability: number; marketUrl: string; marketRank: number } | null = null;
+  let finalForecast = adjustedForecast;
+  let polymarketAdjustment = 0;
+
+  if (title) {
+    polymarketData = await getPolymarketProbability(
+      title.canonicalName,
+      title.type as 'MOVIE' | 'SHOW'
+    );
+
+    if (polymarketData) {
+      const polyProb = polymarketData.probability * 100;
+      const isForTopRank = polymarketData.marketRank === 1;
+
+      console.log(`[generateForecast] ${title.canonicalName}: Polymarket ${polyProb.toFixed(1)}% (market #${polymarketData.marketRank}), base forecast ${adjustedForecast.toFixed(1)}`);
+
+      if (isForTopRank && polyProb >= 70) {
+        // TIER 1: Clear favorite - override to #1
+        finalForecast = 1;
+        polymarketAdjustment = adjustedForecast - 1;
+        console.log(`[generateForecast] TIER 1 OVERRIDE: ${polyProb.toFixed(1)}% -> predict #1`);
+      } else if (isForTopRank && polyProb >= 55) {
+        // TIER 2: Strong favorite - heavily weight toward #1-2
+        const polyPrediction = 1 + ((100 - polyProb) / 45); // 55% -> ~2, 69% -> ~1.7
+        finalForecast = (adjustedForecast * 0.3) + (polyPrediction * 0.7);
+        polymarketAdjustment = adjustedForecast - finalForecast;
+        console.log(`[generateForecast] TIER 2 STRONG: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
+      } else if (isForTopRank && polyProb >= 40) {
+        // TIER 3: Competitive - moderate weight
+        const polyPrediction = 2 + ((55 - polyProb) / 15); // 40% -> ~3, 54% -> ~2
+        finalForecast = (adjustedForecast * 0.5) + (polyPrediction * 0.5);
+        polymarketAdjustment = adjustedForecast - finalForecast;
+        console.log(`[generateForecast] TIER 3 TOSS-UP: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
+      } else if (isForTopRank && polyProb >= 10) {
+        // TIER 4: Lower probability but still relevant - light weight
+        const polyPrediction = 3 + ((40 - polyProb) / 10); // 10% -> ~6, 39% -> ~3
+        finalForecast = (adjustedForecast * 0.7) + (polyPrediction * 0.3);
+        polymarketAdjustment = adjustedForecast - finalForecast;
+        console.log(`[generateForecast] TIER 4 BLEND: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
+      }
+      // Below 10% - don't adjust, Polymarket not confident
+    }
+  }
+
+  // Clamp final forecast
+  finalForecast = Math.max(1, Math.min(10, finalForecast));
+
   // Calculate uncertainty
-  const residualStd = calculateResiduals(historical);
+  let residualStd = calculateResiduals(historical);
+
+  // Reduce uncertainty if Polymarket is confident
+  if (polymarketData) {
+    const polyProb = polymarketData.probability * 100;
+    if (polyProb >= 70) residualStd = Math.min(residualStd, 1.0);
+    else if (polyProb >= 55) residualStd = Math.min(residualStd, 1.5);
+  }
 
   // Calculate confidence based on data availability
   const hasSignals = features?.trendsGlobal !== null || features?.wikipediaViews !== null;
   const hasEnoughHistory = historical.length >= 4;
+  const hasPolymarket = polymarketData !== null;
   const confidence: 'low' | 'medium' | 'high' =
-    hasEnoughHistory && hasSignals ? 'high' : hasEnoughHistory || hasSignals ? 'medium' : 'low';
+    hasPolymarket ? 'high' : hasEnoughHistory && hasSignals ? 'high' : hasEnoughHistory || hasSignals ? 'medium' : 'low';
 
   // Generate percentile forecasts
   // For ranks, lower is better so p10 (optimistic) is lower
-  const p50 = Math.round(Math.max(1, Math.min(10, adjustedForecast)));
-  const p10 = Math.round(Math.max(1, Math.min(10, adjustedForecast - residualStd * 1.28)));
-  const p90 = Math.round(Math.max(1, Math.min(10, adjustedForecast + residualStd * 1.28)));
+  const p50 = Math.round(Math.max(1, Math.min(10, finalForecast)));
+  const p10 = Math.round(Math.max(1, Math.min(10, finalForecast - residualStd * 1.28)));
+  const p90 = Math.round(Math.max(1, Math.min(10, finalForecast + residualStd * 1.28)));
 
   // Calculate week end
   const weekEnd = new Date(targetWeekStart);
@@ -394,6 +457,10 @@ export async function generateForecast(
       historicalPattern: trend.pattern,
       confidence,
       momentumBreakdown: features?.momentumBreakdown ?? null,
+      // Polymarket data (v1.4.0)
+      polymarketProbability: polymarketData?.probability,
+      polymarketUrl: polymarketData?.marketUrl,
+      polymarketMarketRank: polymarketData?.marketRank,
     },
   };
 }
