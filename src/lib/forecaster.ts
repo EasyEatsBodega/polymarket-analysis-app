@@ -45,10 +45,12 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
 } | null> {
   try {
     // Fetch from our cached Polymarket API
-    // In production this uses the full URL, for local dev it needs the origin
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    // Use production URL for consistency (VERCEL_URL can point to preview deployments)
+    const baseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : process.env.NEXT_PUBLIC_BASE_URL || 'https://predicteasy.vercel.app';
+
+    console.log(`[getPolymarketProbability] Fetching from ${baseUrl}/api/polymarket-netflix`);
 
     const response = await fetch(`${baseUrl}/api/polymarket-netflix`, {
       next: { revalidate: 300 }, // Cache for 5 minutes
@@ -77,6 +79,8 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
     // Use case-insensitive partial matching since Polymarket names may vary slightly
     const normalizedTitleName = titleName.toLowerCase().trim();
 
+    console.log(`[getPolymarketProbability] Searching for "${titleName}" (normalized: "${normalizedTitleName}") in ${markets.length} markets`);
+
     for (const market of markets as Array<{ category: string; rank: number; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }>) {
       if (!relevantCategories.includes(market.category)) continue;
 
@@ -91,6 +95,7 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
           normalizedOutcome.includes(normalizedTitleName) ||
           normalizedTitleName.includes(normalizedOutcome)
         ) {
+          console.log(`[getPolymarketProbability] MATCH: "${titleName}" matched "${outcome.name}" with probability ${outcome.probability}`);
           return {
             probability: outcome.probability,
             marketUrl: market.polymarketUrl,
@@ -100,6 +105,7 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
       }
     }
 
+    console.log(`[getPolymarketProbability] NO MATCH found for "${titleName}"`);
     return null;
   } catch (error) {
     console.error('[getPolymarketProbability] Error fetching market data:', error);
