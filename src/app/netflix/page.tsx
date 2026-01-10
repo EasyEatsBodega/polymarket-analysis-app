@@ -143,7 +143,7 @@ export default function NetflixPage() {
           <section className="mb-8">
             <div className="mb-4">
               <h2 className="text-xl font-semibold text-gunmetal">
-                FlixPatrol Daily Rankings - {activeTabConfig.label}
+                FlixPatrol Daily Rankings - {activeTabConfig.type === "SHOW" ? "TV" : "Films"} (Worldwide)
               </h2>
               <p className="text-sm text-gray-500 mt-1">
                 14-day rank trends for Polymarket-linked titles
@@ -151,7 +151,7 @@ export default function NetflixPage() {
             </div>
             <FlixPatrolRankChart
               type={activeTabConfig.type}
-              region={activeTabConfig.region === "us" ? "us" : "world"}
+              region="world"
               polymarketOnly={true}
               days={14}
             />
