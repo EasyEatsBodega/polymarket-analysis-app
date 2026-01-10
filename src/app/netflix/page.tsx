@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
-import RankTrendChart from "@/components/RankTrendChart";
 import Header from "@/components/Header";
 import OpportunityGrid from "@/components/OpportunityGrid";
 
@@ -56,33 +55,30 @@ export default function NetflixPage() {
         </div>
 
         <div className="mt-8">
-          {/* Rank Trend Chart */}
+          {/* Polymarket Signals - THE market we're comparing against */}
           <section className="mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gunmetal">
-                Rank Trends - {activeTabConfig.label}
-              </h2>
-              <span className="text-sm text-gray-500">
-                Last 8 weeks performance
-              </span>
+              <div>
+                <h2 className="text-xl font-semibold text-gunmetal">
+                  Polymarket Odds - {activeTabConfig.label}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Live prediction market prices
+                </p>
+              </div>
             </div>
-            <RankTrendChart
-              type={activeTabConfig.type}
-              region={activeTabConfig.region}
-              weeks={8}
-              limit={5}
-            />
+            <PolymarketMarkets tab={activeTab} />
           </section>
 
-          {/* Polymarket Titles - Main Dashboard */}
+          {/* Our Model's Analysis */}
           <section className="mb-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <div>
                 <h2 className="text-xl font-semibold text-gunmetal">
-                  Polymarket Titles - {activeTabConfig.label}
+                  PredictEasy Analysis - {activeTabConfig.label}
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">
-                  Titles with active prediction markets
+                  Our model estimates vs market odds
                 </p>
               </div>
 
@@ -140,18 +136,6 @@ export default function NetflixPage() {
               limit={viewMode === "opportunities" ? 20 : 15}
               compact={false}
             />
-          </section>
-
-          <section>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gunmetal">
-                Polymarket Signals
-              </h2>
-              <span className="text-sm text-gray-500">
-                Live prediction markets
-              </span>
-            </div>
-            <PolymarketMarkets tab={activeTab} />
           </section>
         </div>
       </main>

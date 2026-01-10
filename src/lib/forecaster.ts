@@ -31,7 +31,81 @@ type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 // Model version for tracking
 // v1.1.0: Enhanced pre-release model with creator track record + star power
 // v1.2.0: Added FlixPatrol daily rank integration for current performance
-export const MODEL_VERSION = '1.2.0';
+// v1.3.0: Added Polymarket probability as primary signal for pre-release forecasts
+export const MODEL_VERSION = '1.3.0';
+
+/**
+ * Get Polymarket probability for a title
+ * Returns the market's probability (0-1) if the title is in an active market
+ */
+async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 'SHOW'): Promise<{
+  probability: number;
+  marketUrl: string;
+  marketRank: number; // 1 for #1 market, 2 for #2 market
+} | null> {
+  try {
+    // Fetch from our cached Polymarket API
+    // In production this uses the full URL, for local dev it needs the origin
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+
+    const response = await fetch(`${baseUrl}/api/polymarket-netflix`, {
+      next: { revalidate: 300 }, // Cache for 5 minutes
+    });
+
+    if (!response.ok) {
+      console.warn('[getPolymarketProbability] API returned error:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data.success) return null;
+
+    // Flatten all markets into a single array
+    const markets = Array.isArray(data.data)
+      ? data.data
+      : Object.values(data.data).flat();
+
+    // Filter to relevant category (movies or shows)
+    // Check both US and Global markets since a title could be in either
+    const relevantCategories = titleType === 'MOVIE'
+      ? ['films-us', 'films-global']
+      : ['shows-us', 'shows-global'];
+
+    // Search for the title in market outcomes
+    // Use case-insensitive partial matching since Polymarket names may vary slightly
+    const normalizedTitleName = titleName.toLowerCase().trim();
+
+    for (const market of markets as Array<{ category: string; rank: number; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }>) {
+      if (!relevantCategories.includes(market.category)) continue;
+
+      for (const outcome of market.outcomes || []) {
+        if (outcome.name.toLowerCase() === 'other') continue;
+
+        const normalizedOutcome = outcome.name.toLowerCase().trim();
+
+        // Match if names are similar (handles variations like "The Movie" vs "Movie")
+        if (
+          normalizedOutcome === normalizedTitleName ||
+          normalizedOutcome.includes(normalizedTitleName) ||
+          normalizedTitleName.includes(normalizedOutcome)
+        ) {
+          return {
+            probability: outcome.probability,
+            marketUrl: market.polymarketUrl,
+            marketRank: market.rank,
+          };
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[getPolymarketProbability] Error fetching market data:', error);
+    return null;
+  }
+}
 
 /**
  * Get the most recent FlixPatrol daily rank for a title
@@ -86,7 +160,7 @@ export interface ForecastExplanation {
   historicalPattern: string;
   confidence: 'low' | 'medium' | 'high';
   momentumBreakdown: MomentumBreakdown | null;
-  // New fields for enhanced pre-release forecasting
+  // Creator/star power fields for enhanced pre-release forecasting
   creatorBoost?: number;
   creatorName?: string;
   creatorReason?: string;
@@ -95,6 +169,10 @@ export interface ForecastExplanation {
   // FlixPatrol current ranking
   currentFlixPatrolRank?: number;
   currentFlixPatrolDate?: string;
+  // Polymarket probability (v1.3)
+  polymarketProbability?: number;
+  polymarketUrl?: string;
+  polymarketMarketRank?: number;
 }
 
 interface HistoricalDataPoint {
@@ -403,13 +481,23 @@ export async function generateViewsForecast(
 /**
  * Generate pre-release forecast for titles without Netflix history
  *
- * ENHANCED MODEL (v1.1):
- * Uses multiple factors weighted by predictive power:
- * - Creator track record (30%): Harlan Coben = 90% #1 hit rate
- * - Star power (25%): A-list cast significantly boosts viewership
- * - Google Trends (20%): Pre-release search interest
- * - Wikipedia views (15%): Article traffic as buzz indicator
- * - Base rate (10%): Default expectation for new releases
+ * ENHANCED MODEL (v1.3):
+ * Uses Polymarket probability as primary signal when available.
+ * Other factors are used as secondary/fallback signals:
+ *
+ * WITH Polymarket data:
+ * - Polymarket probability (35%): Market consensus is the strongest predictor
+ * - Creator track record (25%): Historical hit rate
+ * - Star power (20%): A-list cast draw
+ * - Google Trends (12%): Pre-release search interest
+ * - Wikipedia views (8%): Article traffic
+ *
+ * WITHOUT Polymarket data:
+ * - Creator track record (30%)
+ * - Star power (25%)
+ * - Google Trends (20%)
+ * - Wikipedia views (15%)
+ * - Base rate (10%)
  *
  * Falls back to neutral defaults if no signals available.
  */
@@ -449,14 +537,14 @@ export async function generatePreReleaseForecast(
     ? wikiSignals.reduce((sum: number, s: DailySignalResult) => sum + s.value, 0) / wikiSignals.length
     : null;
 
-  // === NEW: Get creator track record boost ===
+  // === Get creator track record boost ===
   const creatorInfo = getCreatorMomentumBoost(title.canonicalName);
 
-  // === NEW: Get current FlixPatrol daily rank ===
+  // === Get current FlixPatrol daily rank ===
   // If a title is ALREADY charting, this is the strongest signal
   const currentFlixPatrol = await getLatestFlixPatrolRank(titleId);
 
-  // === NEW: Get star power from MarketThesis ===
+  // === Get star power from MarketThesis ===
   let starPowerScore = 50; // Default neutral
   try {
     const thesis = await generateMarketThesis(
@@ -469,9 +557,19 @@ export async function generatePreReleaseForecast(
     console.error(`[generatePreReleaseForecast] Failed to get star power for ${title.canonicalName}:`, error);
   }
 
-  // === ENHANCED MOMENTUM CALCULATION ===
-  // If title is ALREADY charting on FlixPatrol, use that as primary signal
-  // Otherwise use weighted model of other factors
+  // === NEW v1.3: Get Polymarket probability ===
+  // This is now the PRIMARY signal for pre-release titles
+  const polymarketData = await getPolymarketProbability(
+    title.canonicalName,
+    title.type as 'MOVIE' | 'SHOW'
+  );
+
+  if (polymarketData) {
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName}: Polymarket probability ${(polymarketData.probability * 100).toFixed(1)}% for #${polymarketData.marketRank}`);
+  }
+
+  // === ENHANCED MOMENTUM CALCULATION (v1.3) ===
+  // Priority: FlixPatrol (actual data) > Polymarket (market consensus) > Other signals
 
   let momentumScore: number;
   let confidence: 'low' | 'medium' | 'high' = 'low';
@@ -483,8 +581,60 @@ export async function generatePreReleaseForecast(
     momentumScore = Math.max(50, momentumScore); // Floor at 50 for any charting title
     confidence = 'high'; // Actually charting = high confidence
     console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (${currentFlixPatrol.region})`);
+  } else if (polymarketData) {
+    // POLYMARKET DATA AVAILABLE - Use market consensus as primary signal
+    // Weights when Polymarket is available
+    const weights = {
+      polymarket: 0.35,          // Market consensus is the strongest predictor
+      creatorTrackRecord: 0.25,  // Creator history
+      starPower: 0.20,           // A-list cast
+      trends: 0.12,              // Pre-release search interest
+      wikipedia: 0.08,           // Article traffic
+    };
+
+    let totalScore = 0;
+    let totalWeight = 0;
+
+    // Polymarket probability (35% weight) - convert probability to 0-100 score
+    // Higher probability = higher momentum score
+    // For #1 market: 73% probability = 73 score
+    // For #2 market: 73% probability = 63 score (reduce since it's for 2nd place)
+    const polyScore = polymarketData.marketRank === 1
+      ? polymarketData.probability * 100
+      : polymarketData.probability * 100 - 10; // Slight penalty for #2 market
+    totalScore += Math.max(0, polyScore) * weights.polymarket;
+    totalWeight += weights.polymarket;
+    confidence = 'high'; // Polymarket data = high confidence
+
+    // Creator track record (25% weight)
+    if (creatorInfo.boost > 0) {
+      const creatorScore = Math.min(100, (creatorInfo.boost / 45) * 100);
+      totalScore += creatorScore * weights.creatorTrackRecord;
+      totalWeight += weights.creatorTrackRecord;
+    }
+
+    // Star power (20% weight)
+    if (starPowerScore > 0) {
+      totalScore += starPowerScore * weights.starPower;
+      totalWeight += weights.starPower;
+    }
+
+    // Google Trends (12% weight)
+    if (avgTrends !== null) {
+      totalScore += avgTrends * weights.trends;
+      totalWeight += weights.trends;
+    }
+
+    // Wikipedia views (8% weight)
+    if (avgWiki !== null && avgWiki > 0) {
+      const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
+      totalScore += logNormalized * weights.wikipedia;
+      totalWeight += weights.wikipedia;
+    }
+
+    momentumScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 50;
   } else {
-    // Not currently charting - use weighted model
+    // No Polymarket data - use traditional weighted model
     const weights = {
       creatorTrackRecord: 0.30,  // Creator history is THE biggest predictor
       starPower: 0.25,           // A-list cast draws viewers
@@ -559,10 +709,11 @@ export async function generatePreReleaseForecast(
   // More signals = lower uncertainty
   let uncertainty = 3.5; // Base high uncertainty
   if (currentFlixPatrol) uncertainty -= 1.5; // Currently charting = very low uncertainty
-  if (creatorInfo.boost > 0) uncertainty -= 1.0; // Creator track record reduces uncertainty significantly
-  if (starPowerScore >= 60) uncertainty -= 0.5;
-  if (avgTrends !== null) uncertainty -= 0.3;
-  if (avgWiki !== null) uncertainty -= 0.2;
+  if (polymarketData) uncertainty -= 1.0; // Polymarket data significantly reduces uncertainty
+  if (creatorInfo.boost > 0) uncertainty -= 0.8; // Creator track record reduces uncertainty
+  if (starPowerScore >= 60) uncertainty -= 0.4;
+  if (avgTrends !== null) uncertainty -= 0.2;
+  if (avgWiki !== null) uncertainty -= 0.1;
   uncertainty = Math.max(0.5, uncertainty); // Minimum 0.5 rank uncertainty
 
   // Generate percentile forecasts
@@ -593,7 +744,7 @@ export async function generatePreReleaseForecast(
       historicalPattern: 'pre_release',
       confidence,
       momentumBreakdown: null,
-      // New explanation fields
+      // Creator/star power fields
       creatorBoost: creatorInfo.boost,
       creatorName: creatorInfo.creator ?? undefined,
       creatorReason: creatorInfo.reason ?? undefined,
@@ -602,6 +753,10 @@ export async function generatePreReleaseForecast(
       // FlixPatrol current ranking
       currentFlixPatrolRank: currentFlixPatrol?.rank,
       currentFlixPatrolDate: currentFlixPatrol?.date.toISOString().split('T')[0],
+      // Polymarket probability (NEW v1.3)
+      polymarketProbability: polymarketData?.probability,
+      polymarketUrl: polymarketData?.marketUrl,
+      polymarketMarketRank: polymarketData?.marketRank,
     },
   };
 }
