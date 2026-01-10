@@ -38,11 +38,18 @@ export const MODEL_VERSION = '1.4.0';
 /**
  * Get Polymarket probability for a title
  * Returns the market's probability (0-1) if the title is in an active market
+ *
+ * @param region - 'us' or 'global' to filter to correct market. If not specified, returns first match.
  */
-async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 'SHOW'): Promise<{
+async function getPolymarketProbability(
+  titleName: string,
+  titleType: 'MOVIE' | 'SHOW',
+  region?: 'us' | 'global'
+): Promise<{
   probability: number;
   marketUrl: string;
   marketRank: number; // 1 for #1 market, 2 for #2 market
+  region: 'us' | 'global';
 } | null> {
   try {
     // Fetch from our cached Polymarket API
@@ -50,8 +57,6 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
     const baseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : process.env.NEXT_PUBLIC_BASE_URL || 'https://predicteasy.vercel.app';
-
-    console.log(`[getPolymarketProbability] Fetching from ${baseUrl}/api/polymarket-netflix`);
 
     const response = await fetch(`${baseUrl}/api/polymarket-netflix`, {
       next: { revalidate: 300 }, // Cache for 5 minutes
@@ -70,17 +75,23 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
       ? data.data
       : Object.values(data.data).flat();
 
-    // Filter to relevant category (movies or shows)
-    // Check both US and Global markets since a title could be in either
-    const relevantCategories = titleType === 'MOVIE'
-      ? ['films-us', 'films-global']
-      : ['shows-us', 'shows-global'];
+    // Filter to relevant category based on type AND region
+    let relevantCategories: string[];
+    if (region) {
+      // Filter to specific region
+      relevantCategories = titleType === 'MOVIE'
+        ? [`films-${region}`]
+        : [`shows-${region}`];
+    } else {
+      // Check both regions, prefer US
+      relevantCategories = titleType === 'MOVIE'
+        ? ['films-us', 'films-global']
+        : ['shows-us', 'shows-global'];
+    }
 
     // Search for the title in market outcomes
     // Use case-insensitive partial matching since Polymarket names may vary slightly
     const normalizedTitleName = titleName.toLowerCase().trim();
-
-    console.log(`[getPolymarketProbability] Searching for "${titleName}" (normalized: "${normalizedTitleName}") in ${markets.length} markets`);
 
     for (const market of markets as Array<{ category: string; rank: number; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }>) {
       if (!relevantCategories.includes(market.category)) continue;
@@ -96,17 +107,19 @@ async function getPolymarketProbability(titleName: string, titleType: 'MOVIE' | 
           normalizedOutcome.includes(normalizedTitleName) ||
           normalizedTitleName.includes(normalizedOutcome)
         ) {
-          console.log(`[getPolymarketProbability] MATCH: "${titleName}" matched "${outcome.name}" with probability ${outcome.probability}`);
+          const matchedRegion = market.category.includes('global') ? 'global' : 'us';
+          console.log(`[getPolymarketProbability] MATCH: "${titleName}" in ${matchedRegion} market: ${(outcome.probability * 100).toFixed(1)}%`);
           return {
             probability: outcome.probability,
             marketUrl: market.polymarketUrl,
             marketRank: market.rank,
+            region: matchedRegion,
           };
         }
       }
     }
 
-    console.log(`[getPolymarketProbability] NO MATCH found for "${titleName}"`);
+    console.log(`[getPolymarketProbability] NO MATCH for "${titleName}" in ${region || 'any'} market`);
     return null;
   } catch (error) {
     console.error('[getPolymarketProbability] Error fetching market data:', error);
@@ -366,14 +379,17 @@ export async function generateForecast(
     applyMomentumAdjustment(baseForecast, features);
 
   // === v1.4.0: Check Polymarket data and apply tiered adjustment ===
-  let polymarketData: { probability: number; marketUrl: string; marketRank: number } | null = null;
+  // Use region based on forecast target: RANK = US, VIEWERSHIP = global
+  const polymarketRegion = target === 'VIEWERSHIP' ? 'global' : 'us';
+  let polymarketData: { probability: number; marketUrl: string; marketRank: number; region: 'us' | 'global' } | null = null;
   let finalForecast = adjustedForecast;
   let polymarketAdjustment = 0;
 
   if (title) {
     polymarketData = await getPolymarketProbability(
       title.canonicalName,
-      title.type as 'MOVIE' | 'SHOW'
+      title.type as 'MOVIE' | 'SHOW',
+      polymarketRegion
     );
 
     if (polymarketData) {
@@ -633,9 +649,11 @@ export async function generatePreReleaseForecast(
 
   // === NEW v1.3: Get Polymarket probability ===
   // This is now the PRIMARY signal for pre-release titles
+  // Use US market as default since that's the primary view
   const polymarketData = await getPolymarketProbability(
     title.canonicalName,
-    title.type as 'MOVIE' | 'SHOW'
+    title.type as 'MOVIE' | 'SHOW',
+    'us'
   );
 
   if (polymarketData) {
