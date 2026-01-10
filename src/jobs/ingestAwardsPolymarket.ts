@@ -190,16 +190,23 @@ export async function ingestAwardsPolymarket(): Promise<AwardsIngestionResult> {
     console.log(`\n📺 Processing ${showConfig.name}...`);
 
     // Upsert the award show
+    // Only mark as COMPLETED if we're 24+ hours past the ceremony date
+    // This gives buffer for the ceremony to actually finish (evening US time)
+    const now = new Date();
+    const ceremonyEndBuffer = new Date(showConfig.ceremonyDate);
+    ceremonyEndBuffer.setHours(ceremonyEndBuffer.getHours() + 24);
+    const isCompleted = now > ceremonyEndBuffer;
+
     const show = await prisma.awardShow.upsert({
       where: { slug: showConfig.slug },
       create: {
         name: showConfig.name,
         slug: showConfig.slug,
         ceremonyDate: showConfig.ceremonyDate,
-        status: showConfig.ceremonyDate < new Date() ? AwardShowStatus.COMPLETED : AwardShowStatus.ACTIVE,
+        status: isCompleted ? AwardShowStatus.COMPLETED : AwardShowStatus.ACTIVE,
       },
       update: {
-        status: showConfig.ceremonyDate < new Date() ? AwardShowStatus.COMPLETED : AwardShowStatus.ACTIVE,
+        status: isCompleted ? AwardShowStatus.COMPLETED : AwardShowStatus.ACTIVE,
       },
     });
 
