@@ -146,13 +146,14 @@ export default function NetflixPage() {
                 FlixPatrol Daily Rankings - {activeTabConfig.type === "SHOW" ? "TV" : "Films"} (Worldwide)
               </h2>
               <p className="text-sm text-gray-500 mt-1">
-                14-day rank trends from Netflix Top 10
+                14-day rank trends for Polymarket-tradable titles
               </p>
             </div>
             <FlixPatrolRankChart
               type={activeTabConfig.type}
               region="world"
               days={14}
+              polymarketOnly={true}
             />
           </section>
         </div>

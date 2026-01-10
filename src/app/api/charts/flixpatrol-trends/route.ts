@@ -11,10 +11,6 @@ import prisma, { withRetry } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 // Prisma types
-type MarketTitleLinkSelect = Prisma.MarketTitleLinkGetPayload<{
-  select: { titleId: true };
-}>;
-
 type FlixPatrolDailyResult = Prisma.FlixPatrolDailyGetPayload<object>;
 
 type TitleSelect = Prisma.TitleGetPayload<{
@@ -33,6 +29,55 @@ interface TitleInfo {
   type: string;
   color: string;
   currentRank: number | null;
+}
+
+interface PolymarketOutcome {
+  name: string;
+  volume?: number;
+  probability?: number;
+}
+
+/**
+ * Normalize a title name for matching
+ * Removes season info, punctuation, and converts to lowercase
+ */
+function normalizeForMatching(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/:\s*season\s*\d+/i, '') // Remove ": Season X"
+    .replace(/\s*season\s*\d+/i, '')  // Remove "Season X"
+    .replace(/[^a-z0-9\s]/g, '')      // Remove punctuation
+    .replace(/\s+/g, ' ')             // Normalize whitespace
+    .trim();
+}
+
+/**
+ * Get all unique outcome names from Netflix-related Polymarket markets
+ */
+async function getPolymarketNetflixOutcomes(category: 'tv' | 'movies'): Promise<Set<string>> {
+  const searchTerm = category === 'tv' ? 'Netflix show' : 'Netflix movie';
+
+  const markets = await prisma.polymarketMarket.findMany({
+    where: {
+      question: { contains: searchTerm, mode: 'insensitive' },
+      isActive: true,
+    },
+    select: { outcomes: true },
+  });
+
+  const outcomeNames = new Set<string>();
+
+  for (const market of markets) {
+    if (Array.isArray(market.outcomes)) {
+      for (const outcome of market.outcomes as PolymarketOutcome[]) {
+        if (outcome.name) {
+          outcomeNames.add(normalizeForMatching(outcome.name));
+        }
+      }
+    }
+  }
+
+  return outcomeNames;
 }
 
 export async function GET(request: NextRequest) {
@@ -56,22 +101,17 @@ export async function GET(request: NextRequest) {
 
     // Build the query
     let titleIds: string[] = [];
+    let polymarketOutcomes: Set<string> | null = null;
 
     if (titleId) {
       // Single title mode
       titleIds = [titleId];
     } else if (polymarketOnly) {
-      // Get titles that have Polymarket markets
-      const marketLinks = await withRetry<MarketTitleLinkSelect[]>(() =>
-        prisma.marketTitleLink.findMany({
-          select: { titleId: true },
-          distinct: ['titleId'],
-        })
-      );
-      titleIds = marketLinks.map(m => m.titleId);
+      // Get outcome names from Netflix Polymarket markets for filtering
+      polymarketOutcomes = await getPolymarketNetflixOutcomes(category);
     }
 
-    // Build query - filter by titleIds if specified, otherwise get all entries
+    // Build query - filter by titleIds only for single title mode
     const flixpatrolData = await withRetry<FlixPatrolDailyResult[]>(() =>
       prisma.flixPatrolDaily.findMany({
         where: {
@@ -81,28 +121,37 @@ export async function GET(request: NextRequest) {
             gte: startDate,
             lte: endDate,
           },
-          // Filter by titleIds only if specified (for single title mode or polymarketOnly)
+          // Filter by titleIds only for single title mode
           ...(titleIds.length > 0 && { titleId: { in: titleIds } }),
         },
         orderBy: { date: 'asc' },
       })
     );
 
-    if (flixpatrolData.length === 0) {
+    // If polymarketOnly, filter to entries matching Polymarket outcomes
+    let filteredData = flixpatrolData;
+    if (polymarketOutcomes && polymarketOutcomes.size > 0) {
+      filteredData = flixpatrolData.filter(d => {
+        const normalizedName = normalizeForMatching(d.titleName);
+        return polymarketOutcomes!.has(normalizedName);
+      });
+    }
+
+    if (filteredData.length === 0) {
       return NextResponse.json({
         success: true,
         data: { chartData: [], titles: [] },
-        meta: { message: 'No FlixPatrol data available for this period' },
+        meta: { message: polymarketOnly ? 'No matching Polymarket titles found' : 'No FlixPatrol data available for this period' },
       });
     }
 
     // Get unique dates
-    const uniqueDates = [...new Set(flixpatrolData.map(d => d.date.toISOString().split('T')[0]))].sort();
+    const uniqueDates = [...new Set(filteredData.map(d => d.date.toISOString().split('T')[0]))].sort();
 
     // Build a map of unique entries using titleId if available, otherwise titleSlug
     // Key: titleId or "slug:titleSlug", Value: { name, type, titleId }
     const titleKeyMap = new Map<string, { name: string; titleId: string | null; slug: string | null }>();
-    for (const d of flixpatrolData) {
+    for (const d of filteredData) {
       const key = d.titleId || `slug:${d.titleSlug}`;
       if (!titleKeyMap.has(key)) {
         titleKeyMap.set(key, {
@@ -127,7 +176,7 @@ export async function GET(request: NextRequest) {
     // Get most recent rank for each entry
     const latestDate = uniqueDates[uniqueDates.length - 1];
     const latestRanks = new Map<string, number>();
-    flixpatrolData
+    filteredData
       .filter(d => d.date.toISOString().split('T')[0] === latestDate)
       .forEach(d => {
         const key = d.titleId || `slug:${d.titleSlug}`;
@@ -148,7 +197,7 @@ export async function GET(request: NextRequest) {
 
       // Add rank for each title on this date
       uniqueKeys.forEach(key => {
-        const record = flixpatrolData.find(d => {
+        const record = filteredData.find(d => {
           const recordKey = d.titleId || `slug:${d.titleSlug}`;
           return recordKey === key && d.date.toISOString().split('T')[0] === dateStr;
         });
