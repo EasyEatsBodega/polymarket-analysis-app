@@ -63,7 +63,7 @@
     },
     {
       "path": "/api/jobs/ingest-flixpatrol",
-      "schedule": "0 8 * * *"
+      "schedule": "30 11 * * *"
     },
     {
       "path": "/api/jobs/ingest-flixpatrol-details",

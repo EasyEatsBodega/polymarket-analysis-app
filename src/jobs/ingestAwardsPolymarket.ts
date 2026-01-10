@@ -71,7 +71,7 @@ const AWARD_SHOWS = [
   {
     name: 'Golden Globes 2026',
     slug: 'golden-globes-2026',
-    ceremonyDate: new Date('2026-01-05'),
+    ceremonyDate: new Date('2026-01-11'),
     marketSlugs: GOLDEN_GLOBES_SLUGS,
   },
 ];

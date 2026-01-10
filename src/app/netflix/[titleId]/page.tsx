@@ -6,6 +6,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { MarketThesis } from "@/components/netflix/MarketThesis";
 import { TitleRatings } from "@/components/netflix/TitleRatings";
+import FlixPatrolRankChart from "@/components/FlixPatrolRankChart";
 
 interface RankData {
   week: string;
@@ -821,6 +822,18 @@ export default function TitleDetailPage() {
               region="us"
             />
           </div>
+        </section>
+
+        {/* FlixPatrol Daily Rank Trend */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold text-gunmetal mb-4">FlixPatrol Daily Rank Trend</h2>
+          <p className="text-sm text-gray-500 mb-4">14-day ranking history from FlixPatrol</p>
+          <FlixPatrolRankChart
+            type={title.type}
+            region="world"
+            titleId={title.id}
+            days={14}
+          />
         </section>
 
         {/* Interest Signals */}

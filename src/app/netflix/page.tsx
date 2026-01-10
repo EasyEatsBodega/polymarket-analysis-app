@@ -4,6 +4,7 @@ import { useState } from "react";
 import PolymarketMarkets from "@/components/PolymarketMarkets";
 import Header from "@/components/Header";
 import OpportunityGrid from "@/components/OpportunityGrid";
+import FlixPatrolRankChart from "@/components/FlixPatrolRankChart";
 
 type Tab = "shows-us" | "shows-global" | "films-us" | "films-global";
 type ViewMode = "rankings" | "opportunities";
@@ -135,6 +136,24 @@ export default function NetflixPage() {
               polymarketOnly={true}
               limit={viewMode === "opportunities" ? 20 : 15}
               compact={false}
+            />
+          </section>
+
+          {/* FlixPatrol Daily Rankings Chart */}
+          <section className="mb-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold text-gunmetal">
+                FlixPatrol Daily Rankings - {activeTabConfig.label}
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                14-day rank trends for Polymarket-linked titles
+              </p>
+            </div>
+            <FlixPatrolRankChart
+              type={activeTabConfig.type}
+              region={activeTabConfig.region === "us" ? "us" : "world"}
+              polymarketOnly={true}
+              days={14}
             />
           </section>
         </div>
