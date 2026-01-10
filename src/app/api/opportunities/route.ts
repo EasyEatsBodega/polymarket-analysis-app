@@ -324,7 +324,7 @@ export async function GET(request: NextRequest) {
     // 5. Fetch Polymarket data from our own API using the request origin
     // This works reliably in both local and production environments
     const origin = request.nextUrl.origin;
-    let polymarketData: { category: string; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
+    let polymarketData: { category: string; rank: number; outcomes: Array<{ name: string; probability: number }>; polymarketUrl: string }[] = [];
 
     try {
       const polyUrl = `${origin}/api/polymarket-netflix`;
