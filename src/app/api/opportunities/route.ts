@@ -9,11 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { TitleType, Prisma } from "@prisma/client";
 import prisma, { withRetry } from "@/lib/prisma";
 import {
-  calculateModelProbability,
   calculateEdge,
   generateReasoning,
 } from "@/lib/edgeCalculator";
 import { matchOutcomeToTitle, buildTitleCache } from "@/lib/marketMatcher";
+import { generateMarketProbabilities, MarketCategory, TitleProbability } from "@/lib/forecaster";
 
 export const dynamic = "force-dynamic";
 
@@ -393,6 +393,41 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 5c. Fetch normalized model probabilities (sum to 100%)
+    // This replaces the old per-title probability calculation
+    const normalizedModelProbMap = new Map<string, { probability: number; confidence: 'low' | 'medium' | 'high' }>();
+
+    if (categoryParam && ['shows-us', 'shows-global', 'films-us', 'films-global'].includes(categoryParam)) {
+      try {
+        const marketProbs = await generateMarketProbabilities(categoryParam as MarketCategory);
+        console.log('[opportunities] Generated normalized probabilities for', categoryParam, '- outcomes:', marketProbs.outcomes.length);
+
+        for (const outcome of marketProbs.outcomes) {
+          if (outcome.titleId) {
+            // Convert from 0-100 to 0-1 scale
+            normalizedModelProbMap.set(outcome.titleId, {
+              probability: outcome.probability / 100,
+              confidence: outcome.confidence,
+            });
+          }
+          // Also map by normalized name for titles without IDs
+          const normalizedName = outcome.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+          // Try to find matching title by name
+          for (const title of allTitles) {
+            const titleNormalized = title.canonicalName.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            if (titleNormalized === normalizedName && !normalizedModelProbMap.has(title.id)) {
+              normalizedModelProbMap.set(title.id, {
+                probability: outcome.probability / 100,
+                confidence: outcome.confidence,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[opportunities] Error generating market probabilities:', e);
+      }
+    }
+
     // 6. Build opportunity responses
     const opportunities: OpportunityResponse[] = [];
 
@@ -431,16 +466,17 @@ export async function GET(request: NextRequest) {
         marketData?.probability ?? null
       );
 
-      if (hasMarket && forecast) {
+      if (hasMarket) {
         marketProbability = marketData.probability;
 
-        const modelResult = calculateModelProbability(
-          momentumScore ?? 50,
-          accelerationScore,
-          { p10: adjustedP10, p50: adjustedP50, p90: adjustedP90 },
-          confidence
-        );
-        modelProbability = modelResult.probability;
+        // Use normalized model probability (sums to 100% across all titles)
+        const normalizedProb = normalizedModelProbMap.get(weekData.titleId);
+        if (normalizedProb) {
+          modelProbability = normalizedProb.probability;
+        } else {
+          // Fallback: if not in normalized map, use a low default probability
+          modelProbability = 0.05; // 5% default for unmatched titles
+        }
 
         const edgeResult = calculateEdge(marketProbability, modelProbability);
         edgePercent = edgeResult.edgePercent;
@@ -566,36 +602,35 @@ export async function GET(request: NextRequest) {
         marketData.probability
       );
 
-      // Calculate edge
+      // Calculate edge using normalized probabilities
       let marketProbability: number | null = marketData.probability;
       let modelProbability: number | null = null;
       let edgePercent: number | null = null;
       let reasoning: string | null = null;
 
-      if (forecast) {
-        const modelResult = calculateModelProbability(
-          momentumScore ?? 50,
-          accelerationScore,
-          { p10: adjustedP10, p50: adjustedP50, p90: adjustedP90 },
-          confidence
-        );
-        modelProbability = modelResult.probability;
-
-        const edgeResult = calculateEdge(marketProbability, modelProbability);
-        edgePercent = edgeResult.edgePercent;
-
-        reasoning = generateReasoning({
-          direction: edgeResult.direction,
-          edgePercent: edgeResult.edgePercent,
-          momentumScore: momentumScore ?? 50,
-          accelerationScore,
-          forecastP50: adjustedP50,
-          forecastP10: adjustedP10,
-          forecastP90: adjustedP90,
-          historicalPattern: "pre_release",
-          marketProbability,
-        });
+      // Use normalized model probability (sums to 100% across all titles)
+      const normalizedProb = normalizedModelProbMap.get(title.id);
+      if (normalizedProb) {
+        modelProbability = normalizedProb.probability;
+      } else {
+        // Fallback: if not in normalized map, use a low default probability
+        modelProbability = 0.05; // 5% default for unmatched titles
       }
+
+      const edgeResult = calculateEdge(marketProbability, modelProbability);
+      edgePercent = edgeResult.edgePercent;
+
+      reasoning = generateReasoning({
+        direction: edgeResult.direction,
+        edgePercent: edgeResult.edgePercent,
+        momentumScore: momentumScore ?? 50,
+        accelerationScore,
+        forecastP50: adjustedP50,
+        forecastP10: adjustedP10,
+        forecastP90: adjustedP90,
+        historicalPattern: "pre_release",
+        marketProbability,
+      });
 
       const { signal, strength } = classifySignal(edgePercent, true);
 
