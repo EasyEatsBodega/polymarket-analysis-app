@@ -1116,3 +1116,276 @@ export async function saveForecasts(forecasts: Forecast[]): Promise<number> {
 
   return saved;
 }
+
+// ============================================================================
+// MARKET PROBABILITY DISTRIBUTION (v1.6)
+// Generates probabilities for all titles in a Polymarket market that sum to 100%
+// ============================================================================
+
+export type MarketCategory = 'shows-us' | 'shows-global' | 'films-us' | 'films-global';
+
+export interface TitleProbability {
+  name: string;
+  titleId: string | null;
+  probability: number;  // 0-100, all probabilities sum to 100
+  rawScore: number;     // The underlying momentum/strength score
+  flixPatrolRank: number | null;
+  flixPatrolTrend: string | null;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+export interface MarketProbabilities {
+  category: MarketCategory;
+  marketQuestion: string;
+  outcomes: TitleProbability[];
+  otherProbability: number;  // Probability that winner is not in the outcome list
+  totalProbability: number;  // Should always be 100
+  modelVersion: string;
+  generatedAt: Date;
+}
+
+interface PolymarketOutcome {
+  name: string;
+  probability?: number;
+  volume?: number;
+}
+
+/**
+ * Normalize a title name for matching (same as in chart API)
+ */
+function normalizeForMatching(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/:\s*season\s*\d+/i, '')
+    .replace(/\s*season\s*\d+/i, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Softmax function to convert raw scores to probabilities
+ * Temperature controls sharpness: lower = more confident, higher = more uniform
+ */
+function softmax(scores: number[], temperature: number = 15): number[] {
+  // Shift scores to prevent overflow (subtract max)
+  const maxScore = Math.max(...scores);
+  const shifted = scores.map(s => (s - maxScore) / temperature);
+  const exps = shifted.map(s => Math.exp(s));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map(e => (e / sum) * 100);
+}
+
+/**
+ * Calculate raw strength score for a title based on FlixPatrol data and signals
+ * Returns 0-100 score where higher = more likely to be #1
+ */
+async function calculateTitleStrength(
+  titleName: string,
+  titleId: string | null,
+  category: 'tv' | 'movies'
+): Promise<{
+  score: number;
+  flixPatrolRank: number | null;
+  flixPatrolTrend: string | null;
+  confidence: 'low' | 'medium' | 'high';
+}> {
+  let score = 50; // Base neutral score
+  let flixPatrolRank: number | null = null;
+  let flixPatrolTrend: string | null = null;
+  let confidence: 'low' | 'medium' | 'high' = 'low';
+
+  // If we have a titleId, get FlixPatrol data
+  if (titleId) {
+    const trend = await getFlixPatrolTrend(titleId, 14);
+
+    if (trend.dataPoints > 0) {
+      flixPatrolRank = trend.currentRank;
+      flixPatrolTrend = trend.trendDescription;
+
+      // Score based on current rank
+      // #1 = 100, #2 = 90, #3 = 80, ..., #10 = 10, outside top 10 = decreasing
+      if (trend.currentRank !== null) {
+        if (trend.currentRank <= 10) {
+          score = 100 - (trend.currentRank - 1) * 10;
+        } else {
+          // Steep dropoff for titles outside top 10
+          score = Math.max(0, 10 - (trend.currentRank - 10) * 2);
+        }
+      }
+
+      // Apply trend modifier
+      const trendMod = flixPatrolTrendToMomentum(trend);
+      score += trendMod.modifier * 0.5; // Dampen trend effect
+      score = Math.max(0, Math.min(100, score));
+
+      confidence = trend.dataPoints >= 5 ? 'high' : 'medium';
+    }
+  }
+
+  // If no FlixPatrol data, try to match by name
+  if (flixPatrolRank === null) {
+    const normalizedName = normalizeForMatching(titleName);
+
+    // Search FlixPatrol by title name
+    const recentEntries = await prisma.flixPatrolDaily.findMany({
+      where: {
+        category,
+        region: 'world',
+        date: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+
+    const match = recentEntries.find((e: { titleName: string; rank: number }) =>
+      normalizeForMatching(e.titleName) === normalizedName
+    );
+
+    if (match) {
+      flixPatrolRank = match.rank;
+      if (match.rank <= 10) {
+        score = 100 - (match.rank - 1) * 10;
+      } else {
+        score = Math.max(0, 10 - (match.rank - 10) * 2);
+      }
+      confidence = 'medium';
+    }
+  }
+
+  return { score, flixPatrolRank, flixPatrolTrend, confidence };
+}
+
+/**
+ * Generate probability distribution for a Polymarket market
+ *
+ * Returns probabilities for each outcome title that sum to 100%.
+ * Uses FlixPatrol rankings and trends as primary signals.
+ */
+export async function generateMarketProbabilities(
+  marketCategory: MarketCategory
+): Promise<MarketProbabilities> {
+  // Determine market type
+  const isShows = marketCategory.startsWith('shows');
+  const isUS = marketCategory.endsWith('-us');
+  const category: 'tv' | 'movies' = isShows ? 'tv' : 'movies';
+  const searchTerm = isShows ? 'Netflix show' : 'Netflix movie';
+  const regionTerm = isUS ? 'US' : 'Global';
+
+  // Get active Polymarket markets for this category
+  const markets = await prisma.polymarketMarket.findMany({
+    where: {
+      question: {
+        contains: searchTerm,
+        mode: 'insensitive',
+      },
+      isActive: true,
+    },
+    select: { question: true, outcomes: true },
+  });
+
+  // Find the relevant market (filter by region in question)
+  const market = markets.find((m: { question: string; outcomes: unknown }) =>
+    m.question.toLowerCase().includes(isUS ? 'us' : 'global') ||
+    m.question.toLowerCase().includes(isUS ? 'united states' : 'worldwide')
+  ) || markets[0];
+
+  if (!market || !Array.isArray(market.outcomes)) {
+    return {
+      category: marketCategory,
+      marketQuestion: `What will be the top ${regionTerm} ${isShows ? 'Netflix show' : 'Netflix movie'} this week?`,
+      outcomes: [],
+      otherProbability: 100,
+      totalProbability: 100,
+      modelVersion: MODEL_VERSION,
+      generatedAt: new Date(),
+    };
+  }
+
+  const outcomes = market.outcomes as PolymarketOutcome[];
+
+  // Filter out "Other" outcome - we'll calculate it ourselves
+  const titleOutcomes = outcomes.filter(o =>
+    o.name && o.name.toLowerCase() !== 'other'
+  );
+
+  // Get Title records for matching
+  const titleType = isShows ? 'SHOW' : 'MOVIE';
+  const allTitles = await prisma.title.findMany({
+    where: { type: titleType },
+    select: { id: true, canonicalName: true },
+  });
+
+  // Calculate strength scores for each outcome
+  const outcomeScores: Array<{
+    name: string;
+    titleId: string | null;
+    score: number;
+    flixPatrolRank: number | null;
+    flixPatrolTrend: string | null;
+    confidence: 'low' | 'medium' | 'high';
+  }> = [];
+
+  for (const outcome of titleOutcomes) {
+    // Try to find matching title in database
+    const normalizedOutcome = normalizeForMatching(outcome.name);
+    const matchingTitle = allTitles.find((t: { id: string; canonicalName: string }) =>
+      normalizeForMatching(t.canonicalName) === normalizedOutcome
+    );
+
+    const strength = await calculateTitleStrength(
+      outcome.name,
+      matchingTitle?.id || null,
+      category
+    );
+
+    outcomeScores.push({
+      name: outcome.name,
+      titleId: matchingTitle?.id || null,
+      ...strength,
+    });
+  }
+
+  // Add small score for "Other" to ensure it has some probability
+  const otherBaseScore = 15; // Base 15% expectation for unlisted titles
+
+  // Get all scores including "Other"
+  const allScores = [...outcomeScores.map(o => o.score), otherBaseScore];
+
+  // Apply softmax to get probabilities
+  // Use temperature 12 for relatively sharp but not extreme distribution
+  const probabilities = softmax(allScores, 12);
+
+  // Build outcome list
+  const titleProbabilities: TitleProbability[] = outcomeScores.map((o, i) => ({
+    name: o.name,
+    titleId: o.titleId,
+    probability: Math.round(probabilities[i] * 10) / 10, // Round to 1 decimal
+    rawScore: o.score,
+    flixPatrolRank: o.flixPatrolRank,
+    flixPatrolTrend: o.flixPatrolTrend,
+    confidence: o.confidence,
+  }));
+
+  // Sort by probability descending
+  titleProbabilities.sort((a, b) => b.probability - a.probability);
+
+  const otherProbability = Math.round(probabilities[probabilities.length - 1] * 10) / 10;
+
+  // Ensure total is exactly 100 (fix rounding errors)
+  const rawTotal = titleProbabilities.reduce((sum, t) => sum + t.probability, 0) + otherProbability;
+  const adjustment = 100 - rawTotal;
+  if (titleProbabilities.length > 0) {
+    titleProbabilities[0].probability += adjustment; // Add rounding error to top title
+  }
+
+  return {
+    category: marketCategory,
+    marketQuestion: market.question,
+    outcomes: titleProbabilities,
+    otherProbability,
+    totalProbability: 100,
+    modelVersion: MODEL_VERSION,
+    generatedAt: new Date(),
+  };
+}
