@@ -874,6 +874,7 @@ export async function saveForecasts(forecasts: Forecast[]): Promise<number> {
           p10: forecast.p10,
           p50: forecast.p50,
           p90: forecast.p90,
+          modelVersion: MODEL_VERSION,
           explainJson: forecast.explain as object,
         },
       });
