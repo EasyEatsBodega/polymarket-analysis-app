@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
         type: type || 'ALL',
         region,
         category,
-        titleCount: uniqueTitleIds.length,
+        titleCount: uniqueKeys.length,
       },
     });
   } catch (error) {
