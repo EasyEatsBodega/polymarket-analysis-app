@@ -32,7 +32,8 @@ type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 // v1.1.0: Enhanced pre-release model with creator track record + star power
 // v1.2.0: Added FlixPatrol daily rank integration for current performance
 // v1.3.0: Added Polymarket probability as primary signal for pre-release forecasts
-export const MODEL_VERSION = '1.3.0';
+// v1.4.0: Tiered Polymarket confidence - override for high confidence, blend for toss-ups
+export const MODEL_VERSION = '1.4.0';
 
 /**
  * Get Polymarket probability for a title
@@ -588,57 +589,86 @@ export async function generatePreReleaseForecast(
     confidence = 'high'; // Actually charting = high confidence
     console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (${currentFlixPatrol.region})`);
   } else if (polymarketData) {
-    // POLYMARKET DATA AVAILABLE - Use market consensus as primary signal
-    // Weights when Polymarket is available
-    const weights = {
-      polymarket: 0.35,          // Market consensus is the strongest predictor
-      creatorTrackRecord: 0.25,  // Creator history
-      starPower: 0.20,           // A-list cast
-      trends: 0.12,              // Pre-release search interest
-      wikipedia: 0.08,           // Article traffic
-    };
+    // POLYMARKET DATA AVAILABLE - Use TIERED approach based on confidence level
+    // v1.4.0: Different strategies based on how confident the market is
 
-    let totalScore = 0;
-    let totalWeight = 0;
+    const polyProb = polymarketData.probability * 100; // Convert to percentage
+    const isForTopRank = polymarketData.marketRank === 1; // Is this for #1 market?
 
-    // Polymarket probability (35% weight) - convert probability to 0-100 score
-    // Higher probability = higher momentum score
-    // For #1 market: 73% probability = 73 score
-    // For #2 market: 73% probability = 63 score (reduce since it's for 2nd place)
-    const polyScore = polymarketData.marketRank === 1
-      ? polymarketData.probability * 100
-      : polymarketData.probability * 100 - 10; // Slight penalty for #2 market
-    totalScore += Math.max(0, polyScore) * weights.polymarket;
-    totalWeight += weights.polymarket;
-    confidence = 'high'; // Polymarket data = high confidence
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName}: Polymarket ${polyProb.toFixed(1)}% (market #${polymarketData.marketRank})`);
 
-    // Creator track record (25% weight)
-    if (creatorInfo.boost > 0) {
-      const creatorScore = Math.min(100, (creatorInfo.boost / 45) * 100);
-      totalScore += creatorScore * weights.creatorTrackRecord;
-      totalWeight += weights.creatorTrackRecord;
+    if (isForTopRank && polyProb >= 70) {
+      // TIER 1: CLEAR FAVORITE (70%+)
+      // Override all other signals - market is very confident
+      // His & Hers at 83.5% should predict #1
+      momentumScore = 95; // Will predict rank 1
+      confidence = 'high';
+      console.log(`[generatePreReleaseForecast] TIER 1 OVERRIDE: ${polyProb.toFixed(1)}% -> predict #1`);
+
+    } else if (isForTopRank && polyProb >= 55) {
+      // TIER 2: STRONG FAVORITE (55-69%)
+      // Heavy Polymarket weight, but allow some uncertainty
+      momentumScore = 80 + ((polyProb - 55) / 15) * 10; // 80-90 range
+      confidence = 'high';
+      console.log(`[generatePreReleaseForecast] TIER 2 STRONG: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore.toFixed(0)}`);
+
+    } else if (isForTopRank && polyProb >= 40) {
+      // TIER 3: TOSS-UP (40-54%)
+      // Run Away at 58%, His & Hers at 37% - genuinely competitive
+      // Use moderate momentum score, wider uncertainty later
+      momentumScore = 65 + ((polyProb - 40) / 15) * 10; // 65-75 range
+      confidence = 'medium';
+      console.log(`[generatePreReleaseForecast] TIER 3 TOSS-UP: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore.toFixed(0)}`);
+
+    } else {
+      // TIER 4: LOW CONFIDENCE (<40%) or not #1 market
+      // Blend with other signals since market isn't confident
+      const weights = {
+        polymarket: 0.40,          // Still primary but not dominant
+        creatorTrackRecord: 0.25,  // Creator history
+        starPower: 0.20,           // A-list cast
+        trends: 0.10,              // Pre-release search interest
+        wikipedia: 0.05,           // Article traffic
+      };
+
+      let totalScore = 0;
+      let totalWeight = 0;
+
+      // Polymarket score
+      const polyScore = isForTopRank ? polyProb : polyProb - 10;
+      totalScore += Math.max(0, polyScore) * weights.polymarket;
+      totalWeight += weights.polymarket;
+
+      // Creator track record
+      if (creatorInfo.boost > 0) {
+        const creatorScore = Math.min(100, (creatorInfo.boost / 45) * 100);
+        totalScore += creatorScore * weights.creatorTrackRecord;
+        totalWeight += weights.creatorTrackRecord;
+      }
+
+      // Star power
+      if (starPowerScore > 0) {
+        totalScore += starPowerScore * weights.starPower;
+        totalWeight += weights.starPower;
+      }
+
+      // Google Trends
+      if (avgTrends !== null) {
+        totalScore += avgTrends * weights.trends;
+        totalWeight += weights.trends;
+      }
+
+      // Wikipedia views
+      if (avgWiki !== null && avgWiki > 0) {
+        const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
+        totalScore += logNormalized * weights.wikipedia;
+        totalWeight += weights.wikipedia;
+      }
+
+      momentumScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 50;
+      confidence = 'medium';
+      console.log(`[generatePreReleaseForecast] TIER 4 BLEND: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore}`);
     }
-
-    // Star power (20% weight)
-    if (starPowerScore > 0) {
-      totalScore += starPowerScore * weights.starPower;
-      totalWeight += weights.starPower;
-    }
-
-    // Google Trends (12% weight)
-    if (avgTrends !== null) {
-      totalScore += avgTrends * weights.trends;
-      totalWeight += weights.trends;
-    }
-
-    // Wikipedia views (8% weight)
-    if (avgWiki !== null && avgWiki > 0) {
-      const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
-      totalScore += logNormalized * weights.wikipedia;
-      totalWeight += weights.wikipedia;
-    }
-
-    momentumScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 50;
   } else {
     // No Polymarket data - use traditional weighted model
     const weights = {
@@ -711,15 +741,36 @@ export async function generatePreReleaseForecast(
     predictedRank = 10;
   }
 
-  // Calculate uncertainty based on signal availability
-  // More signals = lower uncertainty
+  // Calculate uncertainty based on signal availability and confidence tier
+  // v1.4.0: Tiered uncertainty based on Polymarket confidence
   let uncertainty = 3.5; // Base high uncertainty
-  if (currentFlixPatrol) uncertainty -= 1.5; // Currently charting = very low uncertainty
-  if (polymarketData) uncertainty -= 1.0; // Polymarket data significantly reduces uncertainty
-  if (creatorInfo.boost > 0) uncertainty -= 0.8; // Creator track record reduces uncertainty
-  if (starPowerScore >= 60) uncertainty -= 0.4;
-  if (avgTrends !== null) uncertainty -= 0.2;
-  if (avgWiki !== null) uncertainty -= 0.1;
+
+  if (currentFlixPatrol) {
+    uncertainty = 1.0; // Currently charting = very low uncertainty
+  } else if (polymarketData) {
+    const polyProb = polymarketData.probability * 100;
+
+    if (polyProb >= 70) {
+      // Clear favorite - very tight uncertainty
+      uncertainty = 1.0;
+    } else if (polyProb >= 55) {
+      // Strong favorite - moderate uncertainty
+      uncertainty = 1.5;
+    } else if (polyProb >= 40) {
+      // Toss-up - wide uncertainty to reflect competition
+      uncertainty = 2.5;
+    } else {
+      // Low confidence - high uncertainty
+      uncertainty = 3.0;
+    }
+  } else {
+    // No Polymarket data - reduce uncertainty based on other signals
+    if (creatorInfo.boost > 0) uncertainty -= 0.8;
+    if (starPowerScore >= 60) uncertainty -= 0.4;
+    if (avgTrends !== null) uncertainty -= 0.2;
+    if (avgWiki !== null) uncertainty -= 0.1;
+  }
+
   uncertainty = Math.max(0.5, uncertainty); // Minimum 0.5 rank uncertainty
 
   // Generate percentile forecasts
