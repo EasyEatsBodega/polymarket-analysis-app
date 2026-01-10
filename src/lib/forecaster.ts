@@ -183,8 +183,10 @@ interface FlixPatrolTrend {
 /**
  * Get FlixPatrol rank trend over N days
  * Calculates slope of rank trajectory using linear regression
+ *
+ * @param region - 'world' for global rankings, 'us' for US rankings
  */
-async function getFlixPatrolTrend(titleId: string, days: number = 14): Promise<FlixPatrolTrend> {
+async function getFlixPatrolTrend(titleId: string, days: number = 14, region: 'world' | 'us' = 'world'): Promise<FlixPatrolTrend> {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
@@ -194,7 +196,7 @@ async function getFlixPatrolTrend(titleId: string, days: number = 14): Promise<F
     where: {
       titleId,
       date: { gte: startDate },
-      region: 'world', // Focus on worldwide rankings
+      region, // Use the specified region (US or worldwide)
     },
     orderBy: { date: 'asc' },
     select: { rank: true, date: true },
@@ -1183,7 +1185,8 @@ function softmax(scores: number[], temperature: number = 15): number[] {
 async function calculateTitleStrength(
   titleName: string,
   titleId: string | null,
-  category: 'tv' | 'movies'
+  category: 'tv' | 'movies',
+  region: 'world' | 'us' = 'world'
 ): Promise<{
   score: number;
   flixPatrolRank: number | null;
@@ -1197,7 +1200,7 @@ async function calculateTitleStrength(
 
   // If we have a titleId, get FlixPatrol data
   if (titleId) {
-    const trend = await getFlixPatrolTrend(titleId, 14);
+    const trend = await getFlixPatrolTrend(titleId, 14, region);
 
     if (trend.dataPoints > 0) {
       flixPatrolRank = trend.currentRank;
@@ -1227,11 +1230,11 @@ async function calculateTitleStrength(
   if (flixPatrolRank === null) {
     const normalizedName = normalizeForMatching(titleName);
 
-    // Search FlixPatrol by title name
+    // Search FlixPatrol by title name (use the specified region)
     const recentEntries = await prisma.flixPatrolDaily.findMany({
       where: {
         category,
-        region: 'world',
+        region,
         date: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
       },
       orderBy: { date: 'desc' },
@@ -1265,10 +1268,11 @@ async function calculateTitleStrength(
 export async function generateMarketProbabilities(
   marketCategory: MarketCategory
 ): Promise<MarketProbabilities> {
-  // Determine market type
+  // Determine market type and region
   const isShows = marketCategory.startsWith('shows');
   const isUS = marketCategory.endsWith('-us');
   const category: 'tv' | 'movies' = isShows ? 'tv' : 'movies';
+  const flixPatrolRegion: 'world' | 'us' = isUS ? 'us' : 'world';
   const searchTerm = isShows ? 'Netflix show' : 'Netflix movie';
   const regionTerm = isUS ? 'US' : 'Global';
 
@@ -1336,7 +1340,8 @@ export async function generateMarketProbabilities(
     const strength = await calculateTitleStrength(
       outcome.name,
       matchingTitle?.id || null,
-      category
+      category,
+      flixPatrolRegion
     );
 
     outcomeScores.push({
