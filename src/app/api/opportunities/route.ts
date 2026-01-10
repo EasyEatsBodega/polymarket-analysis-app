@@ -153,10 +153,10 @@ function applyPolymarketAdjustment(
     adjustedP50 = Math.round((baseForecastP50 * 0.3) + (polyPrediction * 0.7));
     uncertainty = 1.5;
   } else if (polyProb >= 40) {
-    // TIER 3: Contender - aggressively weight toward Polymarket
-    // At 47.5%, this title is essentially a coin flip to be #1
-    const polyPrediction = 1 + ((55 - polyProb) / 15); // Range: 1-2 (not 2-3)
-    adjustedP50 = Math.round((baseForecastP50 * 0.2) + (polyPrediction * 0.8));
+    // TIER 3: Contender - market says toss-up between top candidates
+    // Everyone in this tier gets p50=2 (contender for #1-2)
+    // Model probability (momentum, signals) breaks the tie
+    adjustedP50 = 2;
     uncertainty = 1.5;
   } else if (polyProb >= 10) {
     // TIER 4: Lower probability - moderate weight
@@ -663,17 +663,18 @@ export async function GET(request: NextRequest) {
         const p50Diff = (a.forecastP50 ?? 99) - (b.forecastP50 ?? 99);
         if (p50Diff !== 0) return p50Diff;
 
-        // Tiebreaker 1: market probability (higher is better = more likely to be #1)
-        const marketDiff = (b.marketProbability ?? 0) - (a.marketProbability ?? 0);
-        if (marketDiff !== 0) return marketDiff;
+        // Tiebreaker 1: MODEL probability (higher is better) - this is OUR prediction
+        // If our model says His & Hers 58% vs Run Away 47%, His & Hers should win
+        const probDiff = (b.modelProbability ?? 0) - (a.modelProbability ?? 0);
+        if (probDiff !== 0) return probDiff;
 
-        // Tiebreaker 2: momentum score (higher is better, so reverse)
+        // Tiebreaker 2: momentum score (higher is better)
         const momentumDiff = (b.momentumScore ?? 0) - (a.momentumScore ?? 0);
         if (momentumDiff !== 0) return momentumDiff;
 
-        // Tiebreaker 3: model probability (higher is better, so reverse)
-        const probDiff = (b.modelProbability ?? 0) - (a.modelProbability ?? 0);
-        if (probDiff !== 0) return probDiff;
+        // Tiebreaker 3: market probability (fallback to market consensus)
+        const marketDiff = (b.marketProbability ?? 0) - (a.marketProbability ?? 0);
+        if (marketDiff !== 0) return marketDiff;
 
         // Tiebreaker 4: current rank (lower is better)
         return (a.currentRank ?? 99) - (b.currentRank ?? 99);
