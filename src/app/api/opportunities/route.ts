@@ -121,6 +121,59 @@ interface OpportunityResponse {
   reasoning: string | null;
 }
 
+/**
+ * Apply tiered Polymarket adjustment to forecast
+ * v1.4.1: This is now done at display time, not at forecast generation
+ * This allows the same stored forecast to show different predictions for US vs Global
+ */
+function applyPolymarketAdjustment(
+  baseForecastP50: number,
+  marketProbability: number | null
+): { adjustedP50: number; adjustedP10: number; adjustedP90: number } {
+  if (marketProbability === null) {
+    // No market data - use base forecast with default uncertainty
+    return {
+      adjustedP50: baseForecastP50,
+      adjustedP10: Math.max(1, baseForecastP50 - 2),
+      adjustedP90: Math.min(10, baseForecastP50 + 2),
+    };
+  }
+
+  const polyProb = marketProbability * 100; // Convert to percentage
+  let adjustedP50 = baseForecastP50;
+  let uncertainty = 2; // Default uncertainty
+
+  if (polyProb >= 70) {
+    // TIER 1: Clear favorite - override to #1
+    adjustedP50 = 1;
+    uncertainty = 1;
+  } else if (polyProb >= 55) {
+    // TIER 2: Strong favorite - heavily weight toward #1-2
+    const polyPrediction = 1 + ((100 - polyProb) / 45);
+    adjustedP50 = Math.round((baseForecastP50 * 0.3) + (polyPrediction * 0.7));
+    uncertainty = 1.5;
+  } else if (polyProb >= 40) {
+    // TIER 3: Competitive - moderate weight
+    const polyPrediction = 2 + ((55 - polyProb) / 15);
+    adjustedP50 = Math.round((baseForecastP50 * 0.5) + (polyPrediction * 0.5));
+    uncertainty = 2;
+  } else if (polyProb >= 10) {
+    // TIER 4: Lower probability - light weight
+    const polyPrediction = 3 + ((40 - polyProb) / 10);
+    adjustedP50 = Math.round((baseForecastP50 * 0.7) + (polyPrediction * 0.3));
+    uncertainty = 2.5;
+  }
+  // Below 10% - don't adjust, market not confident
+
+  adjustedP50 = Math.max(1, Math.min(10, adjustedP50));
+
+  return {
+    adjustedP50,
+    adjustedP10: Math.max(1, Math.round(adjustedP50 - uncertainty)),
+    adjustedP90: Math.min(10, Math.round(adjustedP50 + uncertainty)),
+  };
+}
+
 function classifySignal(
   edgePercent: number | null,
   hasMarket: boolean
@@ -363,13 +416,20 @@ export async function GET(request: NextRequest) {
       let reasoning: string | null = null;
       const hasMarket = !!marketData;
 
+      // v1.4.1: Apply Polymarket adjustment dynamically based on current region's market data
+      const baseP50 = forecast?.p50 ?? 5;
+      const { adjustedP50, adjustedP10, adjustedP90 } = applyPolymarketAdjustment(
+        baseP50,
+        marketData?.probability ?? null
+      );
+
       if (hasMarket && forecast) {
         marketProbability = marketData.probability;
 
         const modelResult = calculateModelProbability(
           momentumScore ?? 50,
           accelerationScore,
-          { p10: forecast.p10 ?? 5, p50: forecast.p50 ?? 5, p90: forecast.p90 ?? 5 },
+          { p10: adjustedP10, p50: adjustedP50, p90: adjustedP90 },
           confidence
         );
         modelProbability = modelResult.probability;
@@ -382,9 +442,9 @@ export async function GET(request: NextRequest) {
           edgePercent: edgeResult.edgePercent,
           momentumScore: momentumScore ?? 50,
           accelerationScore,
-          forecastP50: forecast.p50 ?? 5,
-          forecastP10: forecast.p10 ?? 5,
-          forecastP90: forecast.p90 ?? 5,
+          forecastP50: adjustedP50,
+          forecastP10: adjustedP10,
+          forecastP90: adjustedP90,
           historicalPattern: "unknown",
           marketProbability,
         });
@@ -405,9 +465,9 @@ export async function GET(request: NextRequest) {
         category: weekData.category,
         currentRank: weekData.rank,
         previousRank,
-        forecastP50: forecast?.p50 ?? null,
-        forecastP10: forecast?.p10 ?? null,
-        forecastP90: forecast?.p90 ?? null,
+        forecastP50: hasMarket ? adjustedP50 : (forecast?.p50 ?? null),
+        forecastP10: hasMarket ? adjustedP10 : (forecast?.p10 ?? null),
+        forecastP90: hasMarket ? adjustedP90 : (forecast?.p90 ?? null),
         hasMarket,
         marketProbability,
         modelProbability,
@@ -491,6 +551,13 @@ export async function GET(request: NextRequest) {
       const confidence = (explainJson?.confidence as "low" | "medium" | "high") ?? "low";
       const momentumBreakdown = explainJson?.momentumBreakdown ?? null;
 
+      // v1.4.1: Apply Polymarket adjustment dynamically for pre-release titles
+      const baseP50 = forecast?.p50 ?? 5;
+      const { adjustedP50, adjustedP10, adjustedP90 } = applyPolymarketAdjustment(
+        baseP50,
+        marketData.probability
+      );
+
       // Calculate edge
       let marketProbability: number | null = marketData.probability;
       let modelProbability: number | null = null;
@@ -501,7 +568,7 @@ export async function GET(request: NextRequest) {
         const modelResult = calculateModelProbability(
           momentumScore ?? 50,
           accelerationScore,
-          { p10: forecast.p10 ?? 5, p50: forecast.p50 ?? 5, p90: forecast.p90 ?? 5 },
+          { p10: adjustedP10, p50: adjustedP50, p90: adjustedP90 },
           confidence
         );
         modelProbability = modelResult.probability;
@@ -514,9 +581,9 @@ export async function GET(request: NextRequest) {
           edgePercent: edgeResult.edgePercent,
           momentumScore: momentumScore ?? 50,
           accelerationScore,
-          forecastP50: forecast.p50 ?? 5,
-          forecastP10: forecast.p10 ?? 5,
-          forecastP90: forecast.p90 ?? 5,
+          forecastP50: adjustedP50,
+          forecastP10: adjustedP10,
+          forecastP90: adjustedP90,
           historicalPattern: "pre_release",
           marketProbability,
         });
@@ -546,9 +613,9 @@ export async function GET(request: NextRequest) {
         category: preReleaseCategory,
         currentRank: null, // Pre-release - no current rank
         previousRank: null,
-        forecastP50: forecast?.p50 ?? null,
-        forecastP10: forecast?.p10 ?? null,
-        forecastP90: forecast?.p90 ?? null,
+        forecastP50: adjustedP50,
+        forecastP10: adjustedP10,
+        forecastP90: adjustedP90,
         hasMarket: true,
         marketProbability,
         modelProbability,

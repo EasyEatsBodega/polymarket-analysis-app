@@ -33,7 +33,9 @@ type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 // v1.2.0: Added FlixPatrol daily rank integration for current performance
 // v1.3.0: Added Polymarket probability as primary signal for pre-release forecasts
 // v1.4.0: Tiered Polymarket confidence - override for high confidence, blend for toss-ups
-export const MODEL_VERSION = '1.4.0';
+// v1.4.1: Removed Polymarket from stored forecasts - applied dynamically at display time
+//         This allows different predictions for US vs Global markets from same stored forecast
+export const MODEL_VERSION = '1.4.1';
 
 /**
  * Get Polymarket probability for a title
@@ -353,12 +355,6 @@ export async function generateForecast(
     return null; // No data to forecast from
   }
 
-  // Get title info for Polymarket lookup
-  const title = await prisma.title.findUnique({
-    where: { id: titleId },
-    select: { canonicalName: true, type: true },
-  });
-
   // Get current features
   const weights = await getMomentumWeights();
   const latestWeek = historical[historical.length - 1].weekStart;
@@ -378,73 +374,19 @@ export async function generateForecast(
   const { adjusted: adjustedForecast, contribution: momentumContribution } =
     applyMomentumAdjustment(baseForecast, features);
 
-  // === v1.4.0: Check Polymarket data and apply tiered adjustment ===
-  // Use region based on forecast target: RANK = US, VIEWERSHIP = global
-  const polymarketRegion = target === 'VIEWERSHIP' ? 'global' : 'us';
-  let polymarketData: { probability: number; marketUrl: string; marketRank: number; region: 'us' | 'global' } | null = null;
-  let finalForecast = adjustedForecast;
-  let polymarketAdjustment = 0;
+  // === v1.4.1: Don't bake Polymarket into stored forecast ===
+  // Polymarket adjustment is applied dynamically at display time based on
+  // which region (US/Global) the user is viewing.
+  const finalForecast = Math.max(1, Math.min(10, adjustedForecast));
 
-  if (title) {
-    polymarketData = await getPolymarketProbability(
-      title.canonicalName,
-      title.type as 'MOVIE' | 'SHOW',
-      polymarketRegion
-    );
-
-    if (polymarketData) {
-      const polyProb = polymarketData.probability * 100;
-      const isForTopRank = polymarketData.marketRank === 1;
-
-      console.log(`[generateForecast] ${title.canonicalName}: Polymarket ${polyProb.toFixed(1)}% (market #${polymarketData.marketRank}), base forecast ${adjustedForecast.toFixed(1)}`);
-
-      if (isForTopRank && polyProb >= 70) {
-        // TIER 1: Clear favorite - override to #1
-        finalForecast = 1;
-        polymarketAdjustment = adjustedForecast - 1;
-        console.log(`[generateForecast] TIER 1 OVERRIDE: ${polyProb.toFixed(1)}% -> predict #1`);
-      } else if (isForTopRank && polyProb >= 55) {
-        // TIER 2: Strong favorite - heavily weight toward #1-2
-        const polyPrediction = 1 + ((100 - polyProb) / 45); // 55% -> ~2, 69% -> ~1.7
-        finalForecast = (adjustedForecast * 0.3) + (polyPrediction * 0.7);
-        polymarketAdjustment = adjustedForecast - finalForecast;
-        console.log(`[generateForecast] TIER 2 STRONG: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
-      } else if (isForTopRank && polyProb >= 40) {
-        // TIER 3: Competitive - moderate weight
-        const polyPrediction = 2 + ((55 - polyProb) / 15); // 40% -> ~3, 54% -> ~2
-        finalForecast = (adjustedForecast * 0.5) + (polyPrediction * 0.5);
-        polymarketAdjustment = adjustedForecast - finalForecast;
-        console.log(`[generateForecast] TIER 3 TOSS-UP: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
-      } else if (isForTopRank && polyProb >= 10) {
-        // TIER 4: Lower probability but still relevant - light weight
-        const polyPrediction = 3 + ((40 - polyProb) / 10); // 10% -> ~6, 39% -> ~3
-        finalForecast = (adjustedForecast * 0.7) + (polyPrediction * 0.3);
-        polymarketAdjustment = adjustedForecast - finalForecast;
-        console.log(`[generateForecast] TIER 4 BLEND: ${polyProb.toFixed(1)}% -> blend to ${finalForecast.toFixed(1)}`);
-      }
-      // Below 10% - don't adjust, Polymarket not confident
-    }
-  }
-
-  // Clamp final forecast
-  finalForecast = Math.max(1, Math.min(10, finalForecast));
-
-  // Calculate uncertainty
-  let residualStd = calculateResiduals(historical);
-
-  // Reduce uncertainty if Polymarket is confident
-  if (polymarketData) {
-    const polyProb = polymarketData.probability * 100;
-    if (polyProb >= 70) residualStd = Math.min(residualStd, 1.0);
-    else if (polyProb >= 55) residualStd = Math.min(residualStd, 1.5);
-  }
+  // Calculate uncertainty from historical residuals
+  const residualStd = calculateResiduals(historical);
 
   // Calculate confidence based on data availability
   const hasSignals = features?.trendsGlobal !== null || features?.wikipediaViews !== null;
   const hasEnoughHistory = historical.length >= 4;
-  const hasPolymarket = polymarketData !== null;
   const confidence: 'low' | 'medium' | 'high' =
-    hasPolymarket ? 'high' : hasEnoughHistory && hasSignals ? 'high' : hasEnoughHistory || hasSignals ? 'medium' : 'low';
+    hasEnoughHistory && hasSignals ? 'high' : hasEnoughHistory || hasSignals ? 'medium' : 'low';
 
   // Generate percentile forecasts
   // For ranks, lower is better so p10 (optimistic) is lower
@@ -473,10 +415,7 @@ export async function generateForecast(
       historicalPattern: trend.pattern,
       confidence,
       momentumBreakdown: features?.momentumBreakdown ?? null,
-      // Polymarket data (v1.4.0)
-      polymarketProbability: polymarketData?.probability,
-      polymarketUrl: polymarketData?.marketUrl,
-      polymarketMarketRank: polymarketData?.marketRank,
+      // Note: Polymarket data is applied dynamically at display time, not stored here
     },
   };
 }
@@ -647,21 +586,16 @@ export async function generatePreReleaseForecast(
     console.error(`[generatePreReleaseForecast] Failed to get star power for ${title.canonicalName}:`, error);
   }
 
-  // === NEW v1.3: Get Polymarket probability ===
-  // This is now the PRIMARY signal for pre-release titles
-  // Use US market as default since that's the primary view
-  const polymarketData = await getPolymarketProbability(
-    title.canonicalName,
-    title.type as 'MOVIE' | 'SHOW',
-    'us'
-  );
+  // === v1.4.1: Don't bake Polymarket into stored forecast ===
+  // Polymarket adjustment is now applied dynamically at display time based on
+  // which region (US/Global) the user is viewing. This allows the same stored
+  // forecast to show different predictions for different regional markets.
+  //
+  // The stored forecast uses only: FlixPatrol, creator track record, star power,
+  // Google Trends, and Wikipedia signals.
 
-  if (polymarketData) {
-    console.log(`[generatePreReleaseForecast] ${title.canonicalName}: Polymarket probability ${(polymarketData.probability * 100).toFixed(1)}% for #${polymarketData.marketRank}`);
-  }
-
-  // === ENHANCED MOMENTUM CALCULATION (v1.3) ===
-  // Priority: FlixPatrol (actual data) > Polymarket (market consensus) > Other signals
+  // === MOMENTUM CALCULATION ===
+  // Priority: FlixPatrol (actual data) > Other signals (no Polymarket here)
 
   let momentumScore: number;
   let confidence: 'low' | 'medium' | 'high' = 'low';
@@ -673,87 +607,6 @@ export async function generatePreReleaseForecast(
     momentumScore = Math.max(50, momentumScore); // Floor at 50 for any charting title
     confidence = 'high'; // Actually charting = high confidence
     console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (${currentFlixPatrol.region})`);
-  } else if (polymarketData) {
-    // POLYMARKET DATA AVAILABLE - Use TIERED approach based on confidence level
-    // v1.4.0: Different strategies based on how confident the market is
-
-    const polyProb = polymarketData.probability * 100; // Convert to percentage
-    const isForTopRank = polymarketData.marketRank === 1; // Is this for #1 market?
-
-    console.log(`[generatePreReleaseForecast] ${title.canonicalName}: Polymarket ${polyProb.toFixed(1)}% (market #${polymarketData.marketRank})`);
-
-    if (isForTopRank && polyProb >= 70) {
-      // TIER 1: CLEAR FAVORITE (70%+)
-      // Override all other signals - market is very confident
-      // His & Hers at 83.5% should predict #1
-      momentumScore = 95; // Will predict rank 1
-      confidence = 'high';
-      console.log(`[generatePreReleaseForecast] TIER 1 OVERRIDE: ${polyProb.toFixed(1)}% -> predict #1`);
-
-    } else if (isForTopRank && polyProb >= 55) {
-      // TIER 2: STRONG FAVORITE (55-69%)
-      // Heavy Polymarket weight, but allow some uncertainty
-      momentumScore = 80 + ((polyProb - 55) / 15) * 10; // 80-90 range
-      confidence = 'high';
-      console.log(`[generatePreReleaseForecast] TIER 2 STRONG: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore.toFixed(0)}`);
-
-    } else if (isForTopRank && polyProb >= 40) {
-      // TIER 3: TOSS-UP (40-54%)
-      // Run Away at 58%, His & Hers at 37% - genuinely competitive
-      // Use moderate momentum score, wider uncertainty later
-      momentumScore = 65 + ((polyProb - 40) / 15) * 10; // 65-75 range
-      confidence = 'medium';
-      console.log(`[generatePreReleaseForecast] TIER 3 TOSS-UP: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore.toFixed(0)}`);
-
-    } else {
-      // TIER 4: LOW CONFIDENCE (<40%) or not #1 market
-      // Blend with other signals since market isn't confident
-      const weights = {
-        polymarket: 0.40,          // Still primary but not dominant
-        creatorTrackRecord: 0.25,  // Creator history
-        starPower: 0.20,           // A-list cast
-        trends: 0.10,              // Pre-release search interest
-        wikipedia: 0.05,           // Article traffic
-      };
-
-      let totalScore = 0;
-      let totalWeight = 0;
-
-      // Polymarket score
-      const polyScore = isForTopRank ? polyProb : polyProb - 10;
-      totalScore += Math.max(0, polyScore) * weights.polymarket;
-      totalWeight += weights.polymarket;
-
-      // Creator track record
-      if (creatorInfo.boost > 0) {
-        const creatorScore = Math.min(100, (creatorInfo.boost / 45) * 100);
-        totalScore += creatorScore * weights.creatorTrackRecord;
-        totalWeight += weights.creatorTrackRecord;
-      }
-
-      // Star power
-      if (starPowerScore > 0) {
-        totalScore += starPowerScore * weights.starPower;
-        totalWeight += weights.starPower;
-      }
-
-      // Google Trends
-      if (avgTrends !== null) {
-        totalScore += avgTrends * weights.trends;
-        totalWeight += weights.trends;
-      }
-
-      // Wikipedia views
-      if (avgWiki !== null && avgWiki > 0) {
-        const logNormalized = Math.min(100, Math.log10(avgWiki) * 10);
-        totalScore += logNormalized * weights.wikipedia;
-        totalWeight += weights.wikipedia;
-      }
-
-      momentumScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 50;
-      confidence = 'medium';
-      console.log(`[generatePreReleaseForecast] TIER 4 BLEND: ${polyProb.toFixed(1)}% -> momentumScore ${momentumScore}`);
-    }
   } else {
     // No Polymarket data - use traditional weighted model
     const weights = {
@@ -826,30 +679,14 @@ export async function generatePreReleaseForecast(
     predictedRank = 10;
   }
 
-  // Calculate uncertainty based on signal availability and confidence tier
-  // v1.4.0: Tiered uncertainty based on Polymarket confidence
-  let uncertainty = 3.5; // Base high uncertainty
+  // Calculate uncertainty based on signal availability
+  // v1.4.1: No Polymarket in stored forecast - uncertainty based on other signals only
+  let uncertainty = 3.5; // Base high uncertainty for pre-release
 
   if (currentFlixPatrol) {
     uncertainty = 1.0; // Currently charting = very low uncertainty
-  } else if (polymarketData) {
-    const polyProb = polymarketData.probability * 100;
-
-    if (polyProb >= 70) {
-      // Clear favorite - very tight uncertainty
-      uncertainty = 1.0;
-    } else if (polyProb >= 55) {
-      // Strong favorite - moderate uncertainty
-      uncertainty = 1.5;
-    } else if (polyProb >= 40) {
-      // Toss-up - wide uncertainty to reflect competition
-      uncertainty = 2.5;
-    } else {
-      // Low confidence - high uncertainty
-      uncertainty = 3.0;
-    }
   } else {
-    // No Polymarket data - reduce uncertainty based on other signals
+    // Reduce uncertainty based on available signals
     if (creatorInfo.boost > 0) uncertainty -= 0.8;
     if (starPowerScore >= 60) uncertainty -= 0.4;
     if (avgTrends !== null) uncertainty -= 0.2;
@@ -895,10 +732,7 @@ export async function generatePreReleaseForecast(
       // FlixPatrol current ranking
       currentFlixPatrolRank: currentFlixPatrol?.rank,
       currentFlixPatrolDate: currentFlixPatrol?.date.toISOString().split('T')[0],
-      // Polymarket probability (NEW v1.3)
-      polymarketProbability: polymarketData?.probability,
-      polymarketUrl: polymarketData?.marketUrl,
-      polymarketMarketRank: polymarketData?.marketRank,
+      // Note: Polymarket data is applied dynamically at display time, not stored here
     },
   };
 }
