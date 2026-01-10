@@ -153,17 +153,23 @@ function applyPolymarketAdjustment(
     adjustedP50 = Math.round((baseForecastP50 * 0.3) + (polyPrediction * 0.7));
     uncertainty = 1.5;
   } else if (polyProb >= 40) {
-    // TIER 3: Competitive - moderate weight
-    const polyPrediction = 2 + ((55 - polyProb) / 15);
+    // TIER 3: Contender - aggressively weight toward Polymarket
+    // At 47.5%, this title is essentially a coin flip to be #1
+    const polyPrediction = 1 + ((55 - polyProb) / 15); // Range: 1-2 (not 2-3)
+    adjustedP50 = Math.round((baseForecastP50 * 0.2) + (polyPrediction * 0.8));
+    uncertainty = 1.5;
+  } else if (polyProb >= 10) {
+    // TIER 4: Lower probability - moderate weight
+    const polyPrediction = 3 + ((40 - polyProb) / 10);
     adjustedP50 = Math.round((baseForecastP50 * 0.5) + (polyPrediction * 0.5));
     uncertainty = 2;
-  } else if (polyProb >= 10) {
-    // TIER 4: Lower probability - light weight
-    const polyPrediction = 3 + ((40 - polyProb) / 10);
-    adjustedP50 = Math.round((baseForecastP50 * 0.7) + (polyPrediction * 0.3));
-    uncertainty = 2.5;
+  } else {
+    // TIER 5: Very low probability (<10%) - penalize
+    // If market says <10% chance of #1, push this title DOWN in rankings
+    const polyPrediction = 5 + ((10 - polyProb) / 2); // Range: 5-10
+    adjustedP50 = Math.round((baseForecastP50 * 0.4) + (polyPrediction * 0.6));
+    uncertainty = 3;
   }
-  // Below 10% - don't adjust, market not confident
 
   adjustedP50 = Math.max(1, Math.min(10, adjustedP50));
 
@@ -356,13 +362,15 @@ export async function GET(request: NextRequest) {
       { probability: number; polymarketUrl: string }
     >();
 
-    // Only include markets from the requested category
+    // Only include markets from the requested category AND only #1 markets
     // e.g., "shows-global" should only match against "shows-global" markets
+    // We only use rank=1 markets because we're predicting who will be #1
+    // The #2 market tells us who will be #2, not #1
     const relevantMarkets = categoryParam
-      ? polymarketData.filter(m => m.category === categoryParam)
-      : polymarketData;
+      ? polymarketData.filter(m => m.category === categoryParam && m.rank === 1)
+      : polymarketData.filter(m => m.rank === 1);
 
-    console.log('[opportunities] Filtering to category:', categoryParam, '- relevant markets:', relevantMarkets.length);
+    console.log('[opportunities] Filtering to category:', categoryParam, 'rank=1 only - relevant markets:', relevantMarkets.length);
 
     for (const market of relevantMarkets) {
       for (const outcome of market.outcomes || []) {
@@ -649,21 +657,25 @@ export async function GET(request: NextRequest) {
 
       if (withForecasts.length === 0) return items;
 
-      // Sort by forecastP50, then by tiebreakers (higher momentum = better/lower rank)
+      // Sort by forecastP50, then by tiebreakers
       const sorted = [...withForecasts].sort((a, b) => {
         // Primary: forecast p50 (lower is better)
         const p50Diff = (a.forecastP50 ?? 99) - (b.forecastP50 ?? 99);
         if (p50Diff !== 0) return p50Diff;
 
-        // Tiebreaker 1: momentum score (higher is better, so reverse)
+        // Tiebreaker 1: market probability (higher is better = more likely to be #1)
+        const marketDiff = (b.marketProbability ?? 0) - (a.marketProbability ?? 0);
+        if (marketDiff !== 0) return marketDiff;
+
+        // Tiebreaker 2: momentum score (higher is better, so reverse)
         const momentumDiff = (b.momentumScore ?? 0) - (a.momentumScore ?? 0);
         if (momentumDiff !== 0) return momentumDiff;
 
-        // Tiebreaker 2: model probability (higher is better, so reverse)
+        // Tiebreaker 3: model probability (higher is better, so reverse)
         const probDiff = (b.modelProbability ?? 0) - (a.modelProbability ?? 0);
         if (probDiff !== 0) return probDiff;
 
-        // Tiebreaker 3: current rank (lower is better)
+        // Tiebreaker 4: current rank (lower is better)
         return (a.currentRank ?? 99) - (b.currentRank ?? 99);
       });
 
