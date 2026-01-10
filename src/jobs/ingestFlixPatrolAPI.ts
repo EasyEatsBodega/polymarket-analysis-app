@@ -24,6 +24,11 @@ interface FlixPatrolTop10Entry {
   movie: {
     data: FlixPatrolTitle;
   };
+  country?: {
+    data?: {
+      id: string; // country code like 'world', 'us', 'in', etc.
+    };
+  };
   date: {
     from: string;
     to: string;
@@ -80,6 +85,9 @@ async function fetchTop10FromAPI(
     });
 
     if (response.data?.data) {
+      // Note: API returns country-specific rankings only, not worldwide aggregates.
+      // For worldwide data, use the scrape method instead (default).
+      // This API method processes all entries but may overwrite due to rank collision.
       for (const item of response.data.data) {
         const entry = item.data as FlixPatrolTop10Entry;
 

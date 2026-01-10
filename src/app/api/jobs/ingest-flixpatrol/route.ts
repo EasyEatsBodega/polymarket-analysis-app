@@ -27,7 +27,8 @@ export async function GET(request: NextRequest) {
   const isManual = auth.triggeredBy === 'manual';
 
   const dateParam = request.nextUrl.searchParams.get('date') || undefined;
-  const methodParam = request.nextUrl.searchParams.get('method') || 'api';
+  // Default to 'scrape' since API doesn't support worldwide filtering
+  const methodParam = request.nextUrl.searchParams.get('method') || 'scrape';
   const startTime = Date.now();
 
   // Create job run record
