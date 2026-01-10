@@ -35,7 +35,10 @@ type DailySignalResult = Prisma.DailySignalGetPayload<{}>;
 // v1.4.0: Tiered Polymarket confidence - override for high confidence, blend for toss-ups
 // v1.4.1: Removed Polymarket from stored forecasts - applied dynamically at display time
 //         This allows different predictions for US vs Global markets from same stored forecast
-export const MODEL_VERSION = '1.4.1';
+// v1.5.0: Added FlixPatrol TREND analysis (14-day slope) to detect falling titles
+//         Titles falling out of Top 10 now correctly predicted to rank outside Top 10
+//         Fixed: Titles like "Unlocked" that fell from #10 to #22 no longer predicted #3
+export const MODEL_VERSION = '1.5.0';
 
 /**
  * Get Polymarket probability for a title
@@ -131,7 +134,7 @@ async function getPolymarketProbability(
 
 /**
  * Get the most recent FlixPatrol daily rank for a title
- * Returns rank 1-10 if currently charting, null otherwise
+ * Returns rank if currently charting (any rank), null otherwise
  */
 async function getLatestFlixPatrolRank(titleId: string): Promise<{
   rank: number;
@@ -151,7 +154,7 @@ async function getLatestFlixPatrolRank(titleId: string): Promise<{
     select: { rank: true, date: true, region: true },
   });
 
-  if (latest && latest.rank <= 10) {
+  if (latest) {
     return {
       rank: latest.rank,
       date: latest.date,
@@ -160,6 +163,192 @@ async function getLatestFlixPatrolRank(titleId: string): Promise<{
   }
 
   return null;
+}
+
+/**
+ * FlixPatrol trend data over multiple days
+ */
+interface FlixPatrolTrend {
+  currentRank: number | null;
+  avgRank: number | null;
+  rankSlope: number; // Negative = improving (climbing charts), Positive = declining (falling)
+  dataPoints: number;
+  trendDescription: 'rising_fast' | 'rising' | 'stable' | 'falling' | 'falling_fast' | 'unknown';
+  firstRank: number | null;
+  lastRank: number | null;
+  peakRank: number | null;  // Best rank in period
+  rankChange: number | null; // lastRank - firstRank (positive = fell, negative = improved)
+}
+
+/**
+ * Get FlixPatrol rank trend over N days
+ * Calculates slope of rank trajectory using linear regression
+ */
+async function getFlixPatrolTrend(titleId: string, days: number = 14): Promise<FlixPatrolTrend> {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  startDate.setHours(0, 0, 0, 0);
+
+  // Get all FlixPatrol daily entries for this title in the period
+  const entries = await prisma.flixPatrolDaily.findMany({
+    where: {
+      titleId,
+      date: { gte: startDate },
+      region: 'world', // Focus on worldwide rankings
+    },
+    orderBy: { date: 'asc' },
+    select: { rank: true, date: true },
+  });
+
+  // Default result for no data
+  if (entries.length === 0) {
+    return {
+      currentRank: null,
+      avgRank: null,
+      rankSlope: 0,
+      dataPoints: 0,
+      trendDescription: 'unknown',
+      firstRank: null,
+      lastRank: null,
+      peakRank: null,
+      rankChange: null,
+    };
+  }
+
+  const ranks = entries.map((e: { rank: number; date: Date }) => e.rank);
+  const firstRank = ranks[0];
+  const lastRank = ranks[ranks.length - 1];
+  const peakRank = Math.min(...ranks);
+  const avgRank = ranks.reduce((a: number, b: number) => a + b, 0) / ranks.length;
+  const rankChange = lastRank - firstRank;
+
+  // Calculate slope using linear regression if we have enough data
+  let rankSlope = 0;
+  if (entries.length >= 2) {
+    // Simple linear regression: slope = Σ(x-x̄)(y-ȳ) / Σ(x-x̄)²
+    const n = entries.length;
+    const xMean = (n - 1) / 2;
+    const yMean = avgRank;
+
+    let numerator = 0;
+    let denominator = 0;
+
+    for (let i = 0; i < n; i++) {
+      const x = i;
+      const y = ranks[i];
+      numerator += (x - xMean) * (y - yMean);
+      denominator += (x - xMean) * (x - xMean);
+    }
+
+    rankSlope = denominator !== 0 ? numerator / denominator : 0;
+  }
+
+  // Determine trend description
+  // Note: POSITIVE slope means ranks are INCREASING (getting worse/falling)
+  // NEGATIVE slope means ranks are DECREASING (getting better/rising)
+  let trendDescription: FlixPatrolTrend['trendDescription'];
+  if (rankSlope < -0.5) {
+    trendDescription = 'rising_fast';    // Climbing charts quickly
+  } else if (rankSlope < -0.15) {
+    trendDescription = 'rising';         // Climbing charts
+  } else if (rankSlope > 0.5) {
+    trendDescription = 'falling_fast';   // Falling down charts quickly
+  } else if (rankSlope > 0.15) {
+    trendDescription = 'falling';        // Falling down charts
+  } else {
+    trendDescription = 'stable';
+  }
+
+  return {
+    currentRank: lastRank,
+    avgRank: Math.round(avgRank * 10) / 10,
+    rankSlope: Math.round(rankSlope * 100) / 100,
+    dataPoints: entries.length,
+    trendDescription,
+    firstRank,
+    lastRank,
+    peakRank,
+    rankChange,
+  };
+}
+
+/**
+ * Convert FlixPatrol trend to momentum modifier
+ *
+ * Returns a modifier to add to momentum score:
+ * - Titles rising fast: +30 to +50
+ * - Titles rising: +10 to +30
+ * - Stable titles: -5 to +5
+ * - Titles falling: -10 to -30
+ * - Titles falling fast: -30 to -50
+ *
+ * Also penalizes titles that have fallen out of Top 10
+ */
+function flixPatrolTrendToMomentum(trend: FlixPatrolTrend): {
+  modifier: number;
+  confidence: number;
+  reason: string;
+} {
+  if (trend.dataPoints === 0) {
+    return { modifier: 0, confidence: 0, reason: 'No FlixPatrol data' };
+  }
+
+  let modifier = 0;
+  let reason = '';
+
+  // Base modifier from slope
+  // slope of +1 means rank increased by 1 per day (falling)
+  // slope of -1 means rank decreased by 1 per day (rising)
+  const slopeModifier = -trend.rankSlope * 15; // Amplify slope impact
+
+  switch (trend.trendDescription) {
+    case 'rising_fast':
+      modifier = Math.min(50, 30 + Math.abs(slopeModifier));
+      reason = `Rising fast (slope: ${trend.rankSlope})`;
+      break;
+    case 'rising':
+      modifier = Math.min(30, 10 + Math.abs(slopeModifier));
+      reason = `Rising (slope: ${trend.rankSlope})`;
+      break;
+    case 'stable':
+      modifier = slopeModifier; // Small adjustment
+      reason = `Stable (slope: ${trend.rankSlope})`;
+      break;
+    case 'falling':
+      modifier = Math.max(-30, -10 + slopeModifier);
+      reason = `Falling (slope: ${trend.rankSlope})`;
+      break;
+    case 'falling_fast':
+      modifier = Math.max(-50, -30 + slopeModifier);
+      reason = `Falling fast (slope: ${trend.rankSlope})`;
+      break;
+    default:
+      modifier = 0;
+      reason = 'Unknown trend';
+  }
+
+  // Additional penalty for titles outside Top 10
+  // This is crucial for titles like "Unlocked" that fell from #10 to #22
+  if (trend.currentRank !== null && trend.currentRank > 10) {
+    const outsideTop10Penalty = -Math.min(30, (trend.currentRank - 10) * 3);
+    modifier += outsideTop10Penalty;
+    reason += `, currently #${trend.currentRank} (outside Top 10)`;
+  }
+
+  // Bonus for titles in Top 3
+  if (trend.currentRank !== null && trend.currentRank <= 3) {
+    modifier += 10;
+    reason += `, currently #${trend.currentRank}`;
+  }
+
+  // Confidence based on data points
+  const confidence = Math.min(1, trend.dataPoints / 7); // Full confidence at 7+ days
+
+  return {
+    modifier: Math.round(modifier),
+    confidence,
+    reason,
+  };
 }
 
 export interface Forecast {
@@ -188,9 +377,17 @@ export interface ForecastExplanation {
   creatorReason?: string;
   starPowerBoost?: number;
   starPowerScore?: number;
-  // FlixPatrol current ranking
+  // FlixPatrol current ranking and trend
   currentFlixPatrolRank?: number;
   currentFlixPatrolDate?: string;
+  flixPatrolTrend?: {
+    slope: number;
+    description: string;
+    rankChange: number | null;
+    firstRank: number | null;
+    dataPoints: number;
+  };
+  flixPatrolTrendModifier?: number;
   // Polymarket probability (v1.3)
   polymarketProbability?: number;
   polymarketUrl?: string;
@@ -573,6 +770,15 @@ export async function generatePreReleaseForecast(
   // If a title is ALREADY charting, this is the strongest signal
   const currentFlixPatrol = await getLatestFlixPatrolRank(titleId);
 
+  // === Get FlixPatrol TREND over 14 days ===
+  // This is CRITICAL for titles that are falling down the charts
+  const flixPatrolTrend = await getFlixPatrolTrend(titleId, 14);
+  const trendMomentum = flixPatrolTrendToMomentum(flixPatrolTrend);
+
+  if (flixPatrolTrend.dataPoints > 0) {
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName} FlixPatrol trend: ${flixPatrolTrend.trendDescription} (slope: ${flixPatrolTrend.rankSlope}, change: ${flixPatrolTrend.firstRank} → ${flixPatrolTrend.lastRank})`);
+  }
+
   // === Get star power from MarketThesis ===
   let starPowerScore = 50; // Default neutral
   try {
@@ -595,18 +801,42 @@ export async function generatePreReleaseForecast(
   // Google Trends, and Wikipedia signals.
 
   // === MOMENTUM CALCULATION ===
-  // Priority: FlixPatrol (actual data) > Other signals (no Polymarket here)
+  // Priority: FlixPatrol TREND (actual data with trajectory) > Current rank > Other signals
 
   let momentumScore: number;
   let confidence: 'low' | 'medium' | 'high' = 'low';
 
-  if (currentFlixPatrol) {
-    // TITLE IS ALREADY CHARTING - this is the strongest signal!
-    // Convert rank to momentum: #1 = 100, #2 = 95, #3 = 90, etc.
+  if (flixPatrolTrend.dataPoints > 0) {
+    // We have FlixPatrol data - use trend-aware calculation
+    const currentRank = flixPatrolTrend.currentRank ?? 50; // Default to 50 if somehow null
+
+    // Base momentum from current rank
+    // #1 = 100, #5 = 80, #10 = 55, #15 = 30, #20 = 5, #25+ = 0
+    if (currentRank <= 10) {
+      momentumScore = 100 - (currentRank - 1) * 5;
+    } else {
+      // Titles outside Top 10 get significantly lower base scores
+      // #11 = 45, #15 = 25, #20 = 0
+      momentumScore = Math.max(0, 50 - (currentRank - 10) * 5);
+    }
+
+    // Apply trend modifier - this is CRITICAL
+    // A title falling from #10 to #22 will have a large negative modifier
+    momentumScore += trendMomentum.modifier;
+
+    // Clamp to valid range
+    momentumScore = Math.max(0, Math.min(100, momentumScore));
+
+    // Confidence is high when we have actual charting data
+    confidence = flixPatrolTrend.dataPoints >= 5 ? 'high' : 'medium';
+
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName}: rank=${currentRank}, baseMomentum=${100 - (currentRank <= 10 ? (currentRank - 1) * 5 : 50 + (currentRank - 10) * 5)}, trendModifier=${trendMomentum.modifier} (${trendMomentum.reason}), finalMomentum=${momentumScore}`);
+  } else if (currentFlixPatrol) {
+    // Fallback to just current rank if no trend data
     momentumScore = 100 - (currentFlixPatrol.rank - 1) * 5;
-    momentumScore = Math.max(50, momentumScore); // Floor at 50 for any charting title
-    confidence = 'high'; // Actually charting = high confidence
-    console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (${currentFlixPatrol.region})`);
+    momentumScore = Math.max(0, momentumScore);
+    confidence = 'medium';
+    console.log(`[generatePreReleaseForecast] ${title.canonicalName} is currently #${currentFlixPatrol.rank} on FlixPatrol (no trend data)`);
   } else {
     // No Polymarket data - use traditional weighted model
     const weights = {
@@ -661,7 +891,7 @@ export async function generatePreReleaseForecast(
   }
 
   // === ENHANCED RANK PREDICTION ===
-  // Higher thresholds now that we have better signals
+  // v1.5: Now handles titles falling outside Top 10
   let predictedRank: number;
   if (momentumScore >= 85) {
     predictedRank = 1; // Very high confidence for #1
@@ -675,16 +905,31 @@ export async function generatePreReleaseForecast(
     predictedRank = 6;
   } else if (momentumScore >= 35) {
     predictedRank = 8;
-  } else {
+  } else if (momentumScore >= 25) {
     predictedRank = 10;
+  } else if (momentumScore >= 15) {
+    // Falling titles - predicted outside Top 10
+    predictedRank = 12;
+  } else if (momentumScore >= 5) {
+    predictedRank = 15;
+  } else {
+    // Very low momentum - likely to fall significantly
+    predictedRank = 20;
   }
 
   // Calculate uncertainty based on signal availability
-  // v1.4.1: No Polymarket in stored forecast - uncertainty based on other signals only
+  // v1.5: Now considers FlixPatrol trend confidence
   let uncertainty = 3.5; // Base high uncertainty for pre-release
 
-  if (currentFlixPatrol) {
-    uncertainty = 1.0; // Currently charting = very low uncertainty
+  if (flixPatrolTrend.dataPoints > 0) {
+    // We have FlixPatrol data - uncertainty based on trend confidence
+    uncertainty = 2.0 - trendMomentum.confidence; // 1.0-2.0 range based on data points
+    // Falling titles have higher uncertainty about floor
+    if (flixPatrolTrend.trendDescription.startsWith('falling')) {
+      uncertainty += 1.0;
+    }
+  } else if (currentFlixPatrol) {
+    uncertainty = 1.5; // Currently charting but no trend = medium uncertainty
   } else {
     // Reduce uncertainty based on available signals
     if (creatorInfo.boost > 0) uncertainty -= 0.8;
@@ -696,9 +941,10 @@ export async function generatePreReleaseForecast(
   uncertainty = Math.max(0.5, uncertainty); // Minimum 0.5 rank uncertainty
 
   // Generate percentile forecasts
+  // Note: p90 can now exceed 10 for falling titles
   const p50 = predictedRank;
   const p10 = Math.max(1, Math.round(predictedRank - uncertainty));
-  const p90 = Math.min(10, Math.round(predictedRank + uncertainty));
+  const p90 = Math.round(predictedRank + uncertainty); // No upper cap for falling titles
 
   const weekEnd = new Date(targetWeekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -719,8 +965,8 @@ export async function generatePreReleaseForecast(
       accelerationScore: 0, // No historical momentum to compare
       trendsContribution: avgTrends,
       wikipediaContribution: avgWiki,
-      rankTrendContribution: null,
-      historicalPattern: 'pre_release',
+      rankTrendContribution: trendMomentum.modifier || null,
+      historicalPattern: flixPatrolTrend.dataPoints > 0 ? flixPatrolTrend.trendDescription : 'pre_release',
       confidence,
       momentumBreakdown: null,
       // Creator/star power fields
@@ -729,9 +975,17 @@ export async function generatePreReleaseForecast(
       creatorReason: creatorInfo.reason ?? undefined,
       starPowerBoost,
       starPowerScore,
-      // FlixPatrol current ranking
-      currentFlixPatrolRank: currentFlixPatrol?.rank,
+      // FlixPatrol current ranking and trend
+      currentFlixPatrolRank: flixPatrolTrend.currentRank ?? currentFlixPatrol?.rank,
       currentFlixPatrolDate: currentFlixPatrol?.date.toISOString().split('T')[0],
+      flixPatrolTrend: flixPatrolTrend.dataPoints > 0 ? {
+        slope: flixPatrolTrend.rankSlope,
+        description: flixPatrolTrend.trendDescription,
+        rankChange: flixPatrolTrend.rankChange,
+        firstRank: flixPatrolTrend.firstRank,
+        dataPoints: flixPatrolTrend.dataPoints,
+      } : undefined,
+      flixPatrolTrendModifier: trendMomentum.modifier || undefined,
       // Note: Polymarket data is applied dynamically at display time, not stored here
     },
   };

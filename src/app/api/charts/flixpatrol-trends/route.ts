@@ -148,20 +148,42 @@ export async function GET(request: NextRequest) {
     // Get unique dates
     const uniqueDates = [...new Set(filteredData.map(d => d.date.toISOString().split('T')[0]))].sort();
 
-    // Build a map of unique entries using titleId if available, otherwise titleSlug
-    // Key: titleId or "slug:titleSlug", Value: { name, type, titleId }
-    const titleKeyMap = new Map<string, { name: string; titleId: string | null; slug: string | null }>();
+    // Build a map of unique entries by NORMALIZED title name to avoid duplicates
+    // Some titles may have entries with titleId and entries without (slug-only)
+    // We prefer entries with titleId, but dedupe by normalized name
+    const titleByNormalizedName = new Map<string, { key: string; name: string; titleId: string | null; slug: string | null }>();
     for (const d of filteredData) {
-      const key = d.titleId || `slug:${d.titleSlug}`;
-      if (!titleKeyMap.has(key)) {
-        titleKeyMap.set(key, {
+      const normalizedName = normalizeForMatching(d.titleName);
+      const existingEntry = titleByNormalizedName.get(normalizedName);
+
+      // Prefer entries with titleId over slug-only entries
+      if (!existingEntry || (d.titleId && !existingEntry.titleId)) {
+        const key = d.titleId || `slug:${d.titleSlug}`;
+        titleByNormalizedName.set(normalizedName, {
+          key,
           name: d.titleName,
           titleId: d.titleId,
           slug: d.titleSlug,
         });
       }
     }
+
+    // Build the final key map from deduplicated entries
+    const titleKeyMap = new Map<string, { name: string; titleId: string | null; slug: string | null }>();
+    for (const entry of titleByNormalizedName.values()) {
+      titleKeyMap.set(entry.key, {
+        name: entry.name,
+        titleId: entry.titleId,
+        slug: entry.slug,
+      });
+    }
     const uniqueKeys = [...titleKeyMap.keys()];
+
+    // Create a mapping from normalized name to key for data lookup
+    const normalizedNameToKey = new Map<string, string>();
+    for (const entry of titleByNormalizedName.values()) {
+      normalizedNameToKey.set(normalizeForMatching(entry.name), entry.key);
+    }
 
     // Get title details for entries that have titleId
     const linkedTitleIds = [...titleKeyMap.values()].filter(t => t.titleId).map(t => t.titleId as string);
@@ -173,14 +195,17 @@ export async function GET(request: NextRequest) {
     ) : [];
     const titleMap = new Map(titles.map(t => [t.id, t]));
 
-    // Get most recent rank for each entry
+    // Get most recent rank for each entry (using normalized name to dedupe)
     const latestDate = uniqueDates[uniqueDates.length - 1];
     const latestRanks = new Map<string, number>();
     filteredData
       .filter(d => d.date.toISOString().split('T')[0] === latestDate)
       .forEach(d => {
-        const key = d.titleId || `slug:${d.titleSlug}`;
-        latestRanks.set(key, d.rank);
+        const normalizedName = normalizeForMatching(d.titleName);
+        const key = normalizedNameToKey.get(normalizedName);
+        if (key) {
+          latestRanks.set(key, d.rank);
+        }
       });
 
     // Build chart data
@@ -196,10 +221,13 @@ export async function GET(request: NextRequest) {
       };
 
       // Add rank for each title on this date
+      // Use normalized name to consolidate entries (handles duplicate Run Away etc.)
       uniqueKeys.forEach(key => {
         const record = filteredData.find(d => {
-          const recordKey = d.titleId || `slug:${d.titleSlug}`;
-          return recordKey === key && d.date.toISOString().split('T')[0] === dateStr;
+          // Match by normalized name to the deduplicated key
+          const normalizedName = normalizeForMatching(d.titleName);
+          const mappedKey = normalizedNameToKey.get(normalizedName);
+          return mappedKey === key && d.date.toISOString().split('T')[0] === dateStr;
         });
         dataPoint[key] = record?.rank ?? null;
       });
