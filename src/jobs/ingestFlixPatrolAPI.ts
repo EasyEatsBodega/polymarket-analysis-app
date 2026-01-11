@@ -40,12 +40,29 @@ interface FlixPatrolTop10Entry {
 
 interface IngestResult {
   date: string;
+  region: string;
   tvShowsIngested: number;
   moviesIngested: number;
   titlesMatched: number;
   apiCallsUsed: number;
   errors: string[];
 }
+
+interface CombinedIngestResult {
+  date: string;
+  regions: IngestResult[];
+  totalTvShows: number;
+  totalMovies: number;
+  totalMatched: number;
+  totalApiCalls: number;
+  errors: string[];
+}
+
+// Country codes for FlixPatrol API
+const REGION_COUNTRY_CODES: Record<string, string> = {
+  world: 'cty_5o7g2fKMZvZ3FbWrffX7bKFM', // Worldwide
+  us: 'cty_8nZQo5x3U8vFLQGM4N3q1sYW',    // United States
+};
 
 /**
  * Create authenticated API client
@@ -65,31 +82,49 @@ function createApiClient(): AxiosInstance {
 }
 
 /**
- * Fetch TOP 10 entries for a specific date from FlixPatrol API
+ * Fetch TOP 10 entries for a specific date and region from FlixPatrol API
  */
 async function fetchTop10FromAPI(
   api: AxiosInstance,
-  dateStr: string
+  dateStr: string,
+  region: string = 'world'
 ): Promise<{ tv: FlixPatrolTop10Entry[]; movies: FlixPatrolTop10Entry[] }> {
   const tv: FlixPatrolTop10Entry[] = [];
   const movies: FlixPatrolTop10Entry[] = [];
 
+  const countryId = REGION_COUNTRY_CODES[region];
+  if (!countryId) {
+    console.warn(`Unknown region: ${region}, using world`);
+  }
+
   try {
-    // Fetch TOP 10 entries filtered by Netflix and date
-    const response = await api.get('/top10s', {
-      params: {
-        'company[eq]': NETFLIX_COMPANY_ID,
-        'date[from][eq]': dateStr,
-        'date[to][eq]': dateStr,
-      },
-    });
+    // Fetch TOP 10 entries filtered by Netflix, date, and country
+    const params: Record<string, string> = {
+      'company[eq]': NETFLIX_COMPANY_ID,
+      'date[from][eq]': dateStr,
+      'date[to][eq]': dateStr,
+    };
+
+    // Add country filter if not world (world aggregates all countries)
+    if (countryId && region !== 'world') {
+      params['country[eq]'] = countryId;
+    }
+
+    const response = await api.get('/top10s', { params });
 
     if (response.data?.data) {
-      // Note: API returns country-specific rankings only, not worldwide aggregates.
-      // For worldwide data, use the scrape method instead (default).
-      // This API method processes all entries but may overwrite due to rank collision.
       for (const item of response.data.data) {
         const entry = item.data as FlixPatrolTop10Entry;
+
+        // For world region, skip entries with specific country codes
+        // For specific regions, only include matching country
+        const entryCountry = entry.country?.data?.id;
+        if (region === 'world' && entryCountry && entryCountry !== 'world') {
+          continue; // Skip country-specific entries for world aggregate
+        }
+        if (region !== 'world' && entryCountry !== region) {
+          continue; // Skip entries that don't match the requested region
+        }
 
         // type: 1=Movie, 2=TV Show, 3=? (some entries have type 3)
         if (entry.type === 2 || entry.type === 3) {
@@ -100,7 +135,7 @@ async function fetchTop10FromAPI(
       }
     }
   } catch (error) {
-    console.error('Error fetching TOP 10:', error);
+    console.error(`Error fetching TOP 10 for ${region}:`, error);
   }
 
   return { tv, movies };
@@ -178,13 +213,18 @@ async function matchTitle(
 }
 
 /**
- * Main API-based ingestion function
+ * Ingest FlixPatrol data for a specific region via API
  */
-export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResult> {
+async function ingestFlixPatrolAPIForRegion(
+  api: AxiosInstance,
+  region: string,
+  dateStr?: string
+): Promise<IngestResult> {
   const targetDate = dateStr || new Date().toISOString().split('T')[0];
 
   const result: IngestResult = {
     date: targetDate,
+    region,
     tvShowsIngested: 0,
     moviesIngested: 0,
     titlesMatched: 0,
@@ -193,14 +233,13 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
   };
 
   try {
-    const api = createApiClient();
-    console.log(`Fetching FlixPatrol API data for ${targetDate}...`);
+    console.log(`\nFetching FlixPatrol API ${region.toUpperCase()} data for ${targetDate}...`);
 
-    // Fetch TOP 10 data
-    const { tv, movies } = await fetchTop10FromAPI(api, targetDate);
+    // Fetch TOP 10 data for this region
+    const { tv, movies } = await fetchTop10FromAPI(api, targetDate, region);
     result.apiCallsUsed++;
 
-    console.log(`API returned ${tv.length} TV entries and ${movies.length} movie entries`);
+    console.log(`API returned ${tv.length} TV entries and ${movies.length} movie entries for ${region}`);
 
     const date = new Date(targetDate);
     date.setUTCHours(0, 0, 0, 0);
@@ -224,7 +263,7 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
             date_platform_region_category_rank: {
               date,
               platform: 'netflix',
-              region: 'world',
+              region,
               category: 'tv',
               rank: entry.ranking,
             },
@@ -232,7 +271,7 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
           create: {
             date,
             platform: 'netflix',
-            region: 'world',
+            region,
             category: 'tv',
             rank: entry.ranking,
             points: entry.value,
@@ -252,10 +291,10 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
         if (titleId) result.titlesMatched++;
 
         console.log(
-          `  TV #${entry.ranking}: ${fpTitle.title} (${entry.value} pts)${titleId ? ' [matched]' : ''}`
+          `  [${region}] TV #${entry.ranking}: ${fpTitle.title} (${entry.value} pts)${titleId ? ' [matched]' : ''}`
         );
       } catch (error) {
-        result.errors.push(`TV ${entry.ranking}: ${error}`);
+        result.errors.push(`[${region}] TV ${entry.ranking}: ${error}`);
       }
     }
 
@@ -277,7 +316,7 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
             date_platform_region_category_rank: {
               date,
               platform: 'netflix',
-              region: 'world',
+              region,
               category: 'movies',
               rank: entry.ranking,
             },
@@ -285,7 +324,7 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
           create: {
             date,
             platform: 'netflix',
-            region: 'world',
+            region,
             category: 'movies',
             rank: entry.ranking,
             points: entry.value,
@@ -305,24 +344,68 @@ export async function ingestFlixPatrolAPI(dateStr?: string): Promise<IngestResul
         if (titleId) result.titlesMatched++;
 
         console.log(
-          `  Movie #${entry.ranking}: ${fpTitle.title} (${entry.value} pts)${titleId ? ' [matched]' : ''}`
+          `  [${region}] Movie #${entry.ranking}: ${fpTitle.title} (${entry.value} pts)${titleId ? ' [matched]' : ''}`
         );
       } catch (error) {
-        result.errors.push(`Movie ${entry.ranking}: ${error}`);
+        result.errors.push(`[${region}] Movie ${entry.ranking}: ${error}`);
       }
     }
 
     console.log(
-      `FlixPatrol API ingestion complete: ${result.tvShowsIngested} TV, ${result.moviesIngested} movies, ${result.titlesMatched} matched`
+      `FlixPatrol API ${region} complete: ${result.tvShowsIngested} TV, ${result.moviesIngested} movies, ${result.titlesMatched} matched`
     );
-    console.log(`API calls used: ${result.apiCallsUsed}`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    result.errors.push(`Fatal error: ${errorMsg}`);
-    console.error('FlixPatrol API ingestion failed:', error);
+    result.errors.push(`[${region}] Fatal error: ${errorMsg}`);
+    console.error(`FlixPatrol API ${region} ingestion failed:`, error);
   }
 
   return result;
+}
+
+/**
+ * Main API-based ingestion function - ingests both World and US data
+ */
+export async function ingestFlixPatrolAPI(dateStr?: string): Promise<CombinedIngestResult> {
+  const targetDate = dateStr || new Date().toISOString().split('T')[0];
+  const regions = ['world', 'us'];
+
+  console.log(`=== FlixPatrol API Ingestion for ${targetDate} ===`);
+
+  const api = createApiClient();
+  const regionResults: IngestResult[] = [];
+
+  for (const region of regions) {
+    const result = await ingestFlixPatrolAPIForRegion(api, region, dateStr);
+    regionResults.push(result);
+  }
+
+  const combined: CombinedIngestResult = {
+    date: targetDate,
+    regions: regionResults,
+    totalTvShows: regionResults.reduce((sum, r) => sum + r.tvShowsIngested, 0),
+    totalMovies: regionResults.reduce((sum, r) => sum + r.moviesIngested, 0),
+    totalMatched: regionResults.reduce((sum, r) => sum + r.titlesMatched, 0),
+    totalApiCalls: regionResults.reduce((sum, r) => sum + r.apiCallsUsed, 0),
+    errors: regionResults.flatMap((r) => r.errors),
+  };
+
+  console.log(`\n=== FlixPatrol API Ingestion Complete ===`);
+  console.log(`Total: ${combined.totalTvShows} TV shows, ${combined.totalMovies} movies, ${combined.totalMatched} matched`);
+  console.log(`API calls used: ${combined.totalApiCalls}`);
+
+  return combined;
+}
+
+/**
+ * Ingest a single region via API (for API endpoint compatibility)
+ */
+export async function ingestFlixPatrolAPISingleRegion(
+  region: string,
+  dateStr?: string
+): Promise<IngestResult> {
+  const api = createApiClient();
+  return ingestFlixPatrolAPIForRegion(api, region, dateStr);
 }
 
 /**

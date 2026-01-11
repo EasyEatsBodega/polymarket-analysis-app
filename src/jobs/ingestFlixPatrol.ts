@@ -3,8 +3,8 @@
  *
  * Scrapes daily Netflix Top 10 rankings from FlixPatrol.
  * Data includes:
- * - TV Shows Top 10 (worldwide)
- * - Movies Top 10 (worldwide)
+ * - TV Shows Top 10 (worldwide and US)
+ * - Movies Top 10 (worldwide and US)
  * - Points score for each title
  */
 
@@ -13,6 +13,12 @@ import prisma from '@/lib/prisma';
 import { normalizeTitle } from '@/lib/titleNormalize';
 
 const FLIXPATROL_BASE_URL = 'https://flixpatrol.com';
+
+// Region configurations for FlixPatrol URLs
+const REGION_PATHS: Record<string, string> = {
+  world: 'world',
+  us: 'united-states',
+};
 
 interface FlixPatrolEntry {
   rank: number;
@@ -24,19 +30,30 @@ interface FlixPatrolEntry {
 
 interface IngestResult {
   date: string;
+  region: string;
   tvShowsIngested: number;
   moviesIngested: number;
   titlesMatched: number;
   errors: string[];
 }
 
+interface CombinedIngestResult {
+  date: string;
+  regions: IngestResult[];
+  totalTvShows: number;
+  totalMovies: number;
+  totalMatched: number;
+  errors: string[];
+}
+
 /**
- * Fetch and parse FlixPatrol page HTML
+ * Fetch and parse FlixPatrol page HTML for a specific region
  */
-async function fetchFlixPatrolPage(date?: string): Promise<string> {
+async function fetchFlixPatrolPage(region: string = 'world', date?: string): Promise<string> {
+  const regionPath = REGION_PATHS[region] || 'world';
   const url = date
-    ? `${FLIXPATROL_BASE_URL}/top10/netflix/world/${date}/`
-    : `${FLIXPATROL_BASE_URL}/top10/netflix/`;
+    ? `${FLIXPATROL_BASE_URL}/top10/netflix/${regionPath}/${date}/`
+    : `${FLIXPATROL_BASE_URL}/top10/netflix/${regionPath}/`;
 
   const response = await axios.get(url, {
     headers: {
@@ -152,11 +169,15 @@ async function matchTitle(
 }
 
 /**
- * Main ingestion function
+ * Ingest FlixPatrol data for a specific region
  */
-export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> {
+async function ingestFlixPatrolForRegion(
+  region: string,
+  dateStr?: string
+): Promise<IngestResult> {
   const result: IngestResult = {
     date: dateStr || new Date().toISOString().split('T')[0],
+    region,
     tvShowsIngested: 0,
     moviesIngested: 0,
     titlesMatched: 0,
@@ -164,13 +185,13 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
   };
 
   try {
-    console.log(`Fetching FlixPatrol data for ${result.date}...`);
+    console.log(`\nFetching FlixPatrol ${region.toUpperCase()} data for ${result.date}...`);
 
     // Fetch and parse HTML
-    const html = await fetchFlixPatrolPage(dateStr);
+    const html = await fetchFlixPatrolPage(region, dateStr);
     const { tvShows, movies } = parseFlixPatrolHTML(html);
 
-    console.log(`Parsed ${tvShows.length} TV shows and ${movies.length} movies`);
+    console.log(`Parsed ${tvShows.length} TV shows and ${movies.length} movies for ${region}`);
 
     const date = new Date(result.date);
     date.setUTCHours(0, 0, 0, 0);
@@ -185,7 +206,7 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
             date_platform_region_category_rank: {
               date,
               platform: 'netflix',
-              region: 'world',
+              region,
               category: 'tv',
               rank: entry.rank,
             },
@@ -193,7 +214,7 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
           create: {
             date,
             platform: 'netflix',
-            region: 'world',
+            region,
             category: 'tv',
             rank: entry.rank,
             points: entry.points,
@@ -213,10 +234,10 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
         if (titleId) result.titlesMatched++;
 
         console.log(
-          `  TV #${entry.rank}: ${entry.titleName} (${entry.points} pts)${titleId ? ' [matched]' : ''}`
+          `  [${region}] TV #${entry.rank}: ${entry.titleName} (${entry.points} pts)${titleId ? ' [matched]' : ''}`
         );
       } catch (error) {
-        result.errors.push(`TV ${entry.rank}: ${error}`);
+        result.errors.push(`[${region}] TV ${entry.rank}: ${error}`);
       }
     }
 
@@ -230,7 +251,7 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
             date_platform_region_category_rank: {
               date,
               platform: 'netflix',
-              region: 'world',
+              region,
               category: 'movies',
               rank: entry.rank,
             },
@@ -238,7 +259,7 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
           create: {
             date,
             platform: 'netflix',
-            region: 'world',
+            region,
             category: 'movies',
             rank: entry.rank,
             points: entry.points,
@@ -258,23 +279,67 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
         if (titleId) result.titlesMatched++;
 
         console.log(
-          `  Movie #${entry.rank}: ${entry.titleName} (${entry.points} pts)${titleId ? ' [matched]' : ''}`
+          `  [${region}] Movie #${entry.rank}: ${entry.titleName} (${entry.points} pts)${titleId ? ' [matched]' : ''}`
         );
       } catch (error) {
-        result.errors.push(`Movie ${entry.rank}: ${error}`);
+        result.errors.push(`[${region}] Movie ${entry.rank}: ${error}`);
       }
     }
 
     console.log(
-      `FlixPatrol ingestion complete: ${result.tvShowsIngested} TV, ${result.moviesIngested} movies, ${result.titlesMatched} matched`
+      `FlixPatrol ${region} complete: ${result.tvShowsIngested} TV, ${result.moviesIngested} movies, ${result.titlesMatched} matched`
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    result.errors.push(`Fatal error: ${errorMsg}`);
-    console.error('FlixPatrol ingestion failed:', error);
+    result.errors.push(`[${region}] Fatal error: ${errorMsg}`);
+    console.error(`FlixPatrol ${region} ingestion failed:`, error);
   }
 
   return result;
+}
+
+/**
+ * Main ingestion function - ingests both World and US data
+ */
+export async function ingestFlixPatrol(dateStr?: string): Promise<CombinedIngestResult> {
+  const date = dateStr || new Date().toISOString().split('T')[0];
+  const regions = ['world', 'us'];
+
+  console.log(`=== FlixPatrol Ingestion for ${date} ===`);
+
+  const regionResults: IngestResult[] = [];
+
+  for (const region of regions) {
+    const result = await ingestFlixPatrolForRegion(region, dateStr);
+    regionResults.push(result);
+
+    // Small delay between regions to be nice to the server
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  const combined: CombinedIngestResult = {
+    date,
+    regions: regionResults,
+    totalTvShows: regionResults.reduce((sum, r) => sum + r.tvShowsIngested, 0),
+    totalMovies: regionResults.reduce((sum, r) => sum + r.moviesIngested, 0),
+    totalMatched: regionResults.reduce((sum, r) => sum + r.titlesMatched, 0),
+    errors: regionResults.flatMap((r) => r.errors),
+  };
+
+  console.log(`\n=== FlixPatrol Ingestion Complete ===`);
+  console.log(`Total: ${combined.totalTvShows} TV shows, ${combined.totalMovies} movies, ${combined.totalMatched} matched`);
+
+  return combined;
+}
+
+/**
+ * Ingest a single region (for API endpoint compatibility)
+ */
+export async function ingestFlixPatrolSingleRegion(
+  region: string,
+  dateStr?: string
+): Promise<IngestResult> {
+  return ingestFlixPatrolForRegion(region, dateStr);
 }
 
 /**
@@ -282,15 +347,31 @@ export async function ingestFlixPatrol(dateStr?: string): Promise<IngestResult> 
  */
 if (require.main === module) {
   const dateArg = process.argv.find((a) => a.startsWith('--date='))?.split('=')[1];
+  const regionArg = process.argv.find((a) => a.startsWith('--region='))?.split('=')[1];
 
-  ingestFlixPatrol(dateArg)
-    .then((result) => {
-      console.log('\nResult:', JSON.stringify(result, null, 2));
-      process.exit(result.errors.length > 0 ? 1 : 0);
-    })
-    .catch((error) => {
-      console.error('Failed:', error);
-      process.exit(1);
-    })
-    .finally(() => prisma.$disconnect());
+  // If specific region requested, only ingest that region
+  if (regionArg) {
+    ingestFlixPatrolForRegion(regionArg, dateArg)
+      .then((result) => {
+        console.log('\nResult:', JSON.stringify(result, null, 2));
+        process.exit(result.errors.length > 0 ? 1 : 0);
+      })
+      .catch((error) => {
+        console.error('Failed:', error);
+        process.exit(1);
+      })
+      .finally(() => prisma.$disconnect());
+  } else {
+    // Ingest all regions
+    ingestFlixPatrol(dateArg)
+      .then((result) => {
+        console.log('\nResult:', JSON.stringify(result, null, 2));
+        process.exit(result.errors.length > 0 ? 1 : 0);
+      })
+      .catch((error) => {
+        console.error('Failed:', error);
+        process.exit(1);
+      })
+      .finally(() => prisma.$disconnect());
+  }
 }
