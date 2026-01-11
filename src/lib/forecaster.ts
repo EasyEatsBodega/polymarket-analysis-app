@@ -1294,7 +1294,8 @@ export async function generateMarketProbabilities(
   const searchTerm = isShows ? 'Netflix show' : 'Netflix movie';
   const regionTerm = isUS ? 'US' : 'Global';
 
-  // Get active Polymarket markets for this category
+  // Get active Polymarket markets for this category, sorted by most recent first
+  // New markets are created every Tuesday, so we always want the latest one
   const markets = await prisma.polymarketMarket.findMany({
     where: {
       question: {
@@ -1303,14 +1304,21 @@ export async function generateMarketProbabilities(
       },
       isActive: true,
     },
-    select: { question: true, outcomes: true },
+    select: { question: true, outcomes: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
   });
 
-  // Find the relevant market (filter by region in question)
-  const market = markets.find((m: { question: string; outcomes: unknown }) =>
-    m.question.toLowerCase().includes(isUS ? 'us' : 'global') ||
-    m.question.toLowerCase().includes(isUS ? 'united states' : 'worldwide')
-  ) || markets[0];
+  // Find the relevant market for this category:
+  // - Must match region (US or Global)
+  // - Must be for "top" position (not "#2" markets)
+  // - Pick the most recently updated one (first in sorted list)
+  const regionPattern = isUS ? /\bus\b/i : /\bglobal\b/i;
+  const market = markets.find((m: { question: string; outcomes: unknown }) => {
+    const q = m.question.toLowerCase();
+    const matchesRegion = regionPattern.test(m.question);
+    const isTopMarket = q.includes('top') && !q.includes('#2') && !q.includes('# 2');
+    return matchesRegion && isTopMarket;
+  });
 
   if (!market || !Array.isArray(market.outcomes)) {
     return {
