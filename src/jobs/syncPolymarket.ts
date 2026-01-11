@@ -506,6 +506,56 @@ async function snapshotPrices(result: SyncResult): Promise<void> {
 }
 
 /**
+ * Deduplicate weekly markets - mark older ones as inactive
+ * Polymarket creates new markets each Tuesday, but old ones stay active
+ * This finds duplicate market questions and keeps only the most recent one active
+ */
+async function deduplicateWeeklyMarkets(): Promise<number> {
+  // Patterns for weekly Netflix markets that get recreated each week
+  const weeklyPatterns = [
+    'top global netflix show',
+    'top us netflix show',
+    '#2 global netflix show',
+    '#2 us netflix show',
+    'top global netflix movie',
+    'top us netflix movie',
+    '#2 global netflix movie',
+    '#2 us netflix movie',
+  ];
+
+  let deactivated = 0;
+
+  for (const pattern of weeklyPatterns) {
+    // Find all active markets matching this pattern
+    const markets = await prisma.polymarketMarket.findMany({
+      where: {
+        question: { contains: pattern, mode: 'insensitive' },
+        isActive: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, question: true, updatedAt: true },
+    });
+
+    // If more than one active market for same question, deactivate older ones
+    if (markets.length > 1) {
+      console.log(`Found ${markets.length} active markets for "${pattern}" - keeping newest`);
+
+      // Skip the first (newest), deactivate the rest
+      for (let i = 1; i < markets.length; i++) {
+        await prisma.polymarketMarket.update({
+          where: { id: markets[i].id },
+          data: { isActive: false },
+        });
+        console.log(`  Deactivated old market: ${markets[i].question} (updated ${markets[i].updatedAt})`);
+        deactivated++;
+      }
+    }
+  }
+
+  return deactivated;
+}
+
+/**
  * Main sync function
  */
 export async function syncPolymarket(priceSnapshotOnly = false): Promise<SyncResult> {
@@ -532,6 +582,13 @@ export async function syncPolymarket(priceSnapshotOnly = false): Promise<SyncRes
       console.log(`Found ${events.length} events to process`);
 
       await syncMarkets(events, result);
+
+      // Step 3: Deduplicate weekly markets - keep only the newest active
+      console.log('Deduplicating weekly markets...');
+      const deactivated = await deduplicateWeeklyMarkets();
+      if (deactivated > 0) {
+        console.log(`Deactivated ${deactivated} old weekly markets`);
+      }
     }
 
     // Snapshot prices for all active markets

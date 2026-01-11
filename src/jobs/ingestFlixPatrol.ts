@@ -108,6 +108,7 @@ function parseFlixPatrolHTML(html: string): {
 
 /**
  * Try to match FlixPatrol title to existing Title in database
+ * Uses normalized matching to handle variations like "His Hers" vs "His & Hers"
  */
 async function matchTitle(
   titleName: string,
@@ -115,8 +116,8 @@ async function matchTitle(
 ): Promise<string | null> {
   const titleType = category === 'tv' ? 'SHOW' : 'MOVIE';
 
-  // Normalize the title name for matching
-  const normalized = normalizeTitle(titleName);
+  // Normalize the incoming title name for matching
+  const normalizedInput = normalizeTitle(titleName, titleType);
 
   // Try exact match first
   const exactMatch = await prisma.title.findFirst({
@@ -132,14 +133,17 @@ async function matchTitle(
 
   if (exactMatch) return exactMatch.id;
 
-  // Try normalized match
+  // Try normalized match - compare the .normalized string property
   const titles = await prisma.title.findMany({
     where: { type: titleType },
     select: { id: true, canonicalName: true },
   });
 
   for (const title of titles) {
-    if (normalizeTitle(title.canonicalName) === normalized) {
+    const normalizedExisting = normalizeTitle(title.canonicalName, titleType);
+    // Compare the normalized strings (lowercase alphanumeric only)
+    if (normalizedExisting.normalized === normalizedInput.normalized) {
+      console.log(`  Matched "${titleName}" → "${title.canonicalName}" via normalization`);
       return title.id;
     }
   }
