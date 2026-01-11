@@ -1200,7 +1200,12 @@ async function calculateTitleStrength(
 
   // If we have a titleId, get FlixPatrol data
   if (titleId) {
-    const trend = await getFlixPatrolTrend(titleId, 14, region);
+    let trend = await getFlixPatrolTrend(titleId, 14, region);
+
+    // Fall back to 'world' if no data for specified region
+    if (trend.dataPoints === 0 && region !== 'world') {
+      trend = await getFlixPatrolTrend(titleId, 14, 'world');
+    }
 
     if (trend.dataPoints > 0) {
       flixPatrolRank = trend.currentRank;
@@ -1230,8 +1235,8 @@ async function calculateTitleStrength(
   if (flixPatrolRank === null) {
     const normalizedName = normalizeForMatching(titleName);
 
-    // Search FlixPatrol by title name (use the specified region)
-    const recentEntries = await prisma.flixPatrolDaily.findMany({
+    // Search FlixPatrol by title name (try specified region first, then fall back to 'world')
+    let recentEntries = await prisma.flixPatrolDaily.findMany({
       where: {
         category,
         region,
@@ -1240,6 +1245,19 @@ async function calculateTitleStrength(
       orderBy: { date: 'desc' },
       take: 100,
     });
+
+    // Fall back to 'world' if no data for specified region
+    if (recentEntries.length === 0 && region !== 'world') {
+      recentEntries = await prisma.flixPatrolDaily.findMany({
+        where: {
+          category,
+          region: 'world',
+          date: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+        },
+        orderBy: { date: 'desc' },
+        take: 100,
+      });
+    }
 
     const match = recentEntries.find((e: { titleName: string; rank: number }) =>
       normalizeForMatching(e.titleName) === normalizedName
